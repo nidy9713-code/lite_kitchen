@@ -8,8 +8,8 @@ venv/
 ENV/
 
 # Project specific
-config.py
-recipes.db
+# config.py (removed from ignore for deployment)
+# recipes.db
 *.log
 
 # IDEs
