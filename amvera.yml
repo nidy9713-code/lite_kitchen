@@ -7,5 +7,3 @@ build:
   requirementsPath: requirements.txt
 run:
   scriptName: main.py
-  persistence:
-    - /data
