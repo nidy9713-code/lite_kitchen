@@ -1,368 +1,200 @@
-import sqlite3
 import json
 from typing import List, Dict, Any, Optional
+from supabase import create_client, Client
+from config import SUPABASE_URL, SUPABASE_KEY
 
 class Database:
-    def __init__(self, db_path: str = "recipes.db"):
-        self.db_path = db_path
-        self._init_db()
-
-    def _get_connection(self):
-        return sqlite3.connect(self.db_path)
-
-    def _init_db(self):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            conn.execute("PRAGMA foreign_keys = ON")
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS recipes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    about TEXT,
-                    ingredients TEXT,
-                    steps TEXT,
-                    tips TEXT,
-                    serving TEXT,
-                    substitutions TEXT,
-                    tags TEXT,
-                    category TEXT,
-                    meal_type TEXT,
-                    time_category TEXT,
-                    cook_time INTEGER,
-                    portions TEXT,
-                    photo_id TEXT
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    is_onboarded INTEGER DEFAULT 0
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS constructors (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    suitable_for TEXT,
-                    principle TEXT,
-                    basis TEXT,
-                    protein TEXT,
-                    fats TEXT,
-                    fiber TEXT,
-                    how_to_assemble TEXT,
-                    flexibility TEXT,
-                    lifehacks TEXT,
-                    kids_recommendation TEXT,
-                    photo_id TEXT
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            """)
-            # Initialize default settings if not exist
-            cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('about_text', ?)", (
-                "<b>О проекте «Легкая кухня»</b>\n\n"
-                "Создатель идеи — Чекунова Диана!\n\n"
-                "Чем этот бот вам полезен:\n\n"
-                "🌱 Задача показать разные варианты приготовления одного и того же блюда через конструктор, а не привязать вас к определенному рецепту! Выбирайте вкус и текстуру, которую ценит ваша семья.\n\n"
-                "🌱 Я подберу вам рецепт под прием пищи, чтобы вы заранее могли его спланировать.\n\n"
-                "🌱 Не знаете, что приготовить? Введите имеющиеся продукты или время, которым вы располагаете на готовку.\n\n"
-                "🌱 В некоторых рецептах вы можете менять продукты, альтернативы указаны в самом рецепте.\n\n"
-                "🌱 Отдельно вынесены лайфхаки по группам продуктов (каши, омлеты, гарниры) для вашего удобства.\n\n"
-                "🌱 Есть гайды, которые вы можете скачать и использовать их в любой удобный вам момент."
-            ,))
-            cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('pdf_text', ?)", (
-                "📚 <b>Наши полезные гайды и PDF-материалы</b>\n\n"
-                "Здесь вы можете скачать полезные материалы для вашей кухни.\n\n"
-                "(Ссылки на PDF пока не добавлены)"
-            ,))
-            conn.commit()
+    def __init__(self):
+        self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     async def add_recipe(self, data: Dict[str, Any], bot=None):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO recipes (
-                    title, about, ingredients, steps, tips, serving, substitutions, tags, category, meal_type, time_category, cook_time, portions, photo_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data['title'], data['about'], data['ingredients'], data['steps'], 
-                data.get('tips', ''), data.get('serving', ''), data.get('substitutions', ''), 
-                json.dumps(data.get('tags', [])), data['category'], data.get('meal_type', ''), 
-                data['time_category'], data.get('cook_time', 0), data.get('portions', ''), data.get('photo_id')
-            ))
-            conn.commit()
-            recipe_id = cursor.lastrowid
+        recipe_data = {
+            'title': data['title'],
+            'about': data['about'],
+            'ingredients': data['ingredients'],
+            'steps': data['steps'],
+            'tips': data.get('tips', ''),
+            'serving': data.get('serving', ''),
+            'substitutions': data.get('substitutions', ''),
+            'tags': json.dumps(data.get('tags', []), ensure_ascii=False),
+            'category': data['category'],
+            'meal_type': data.get('meal_type', ''),
+            'time_category': data['time_category'],
+            'cook_time': data.get('cook_time', 0),
+            'portions': data.get('portions', ''),
+            'photo_id': data.get('photo_id')
+        }
+        
+        response = self.supabase.table("recipes").insert(recipe_data).execute()
+        recipe_id = response.data[0]['id']
+        
+        if bot:
+            from bot.utils.mailing import announce_new_recipe
+            await announce_new_recipe(bot, data, self)
             
-            if bot:
-                from bot.utils.mailing import announce_new_recipe
-                await announce_new_recipe(bot, data, self)
-                
-            return recipe_id
+        return recipe_id
 
     async def get_recipes_by_category(self, category: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            if category == "Все":
-                cursor.execute("SELECT * FROM recipes")
-            else:
-                cursor.execute("SELECT * FROM recipes WHERE category = ?", (category,))
-            return [dict(row) for row in cursor.fetchall()]
+        if category == "Все":
+            response = self.supabase.table("recipes").select("*").execute()
+        else:
+            response = self.supabase.table("recipes").select("*").eq("category", category).execute()
+        return response.data
 
     async def get_recipe_by_id(self, recipe_id: int) -> Optional[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        response = self.supabase.table("recipes").select("*").eq("id", recipe_id).execute()
+        return response.data[0] if response.data else None
 
     async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            q = f"%{query}%"
-            cursor.execute("""
-                SELECT * FROM recipes 
-                WHERE title LIKE ? OR ingredients LIKE ? OR tags LIKE ?
-            """, (q, q, q))
-            return [dict(row) for row in cursor.fetchall()]
+        # Supabase doesn't support complex OR in a single ilike easily without RPC or complex filters
+        # We'll use a simpler approach or multiple queries if needed
+        # For now, let's search in title, ingredients, and tags
+        q = f"%{query}%"
+        response = self.supabase.table("recipes").select("*").or_(
+            f"title.ilike.{q},ingredients.ilike.{q},tags.ilike.{q}"
+        ).execute()
+        return response.data
 
     async def filter_recipes(self, time_category: str, tag: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+        tag_map = {
+            "light": "лёгкое",
+            "hearty": "сытное",
+            "kids": "для детей"
+        }
+        search_tag = tag_map.get(tag, tag)
+        q_tag = f"%{search_tag}%"
+        
+        # Smart search: by time AND tag in various fields
+        response = self.supabase.table("recipes").select("*").eq("time_category", time_category).or_(
+            f"tags.ilike.{q_tag},about.ilike.{q_tag},ingredients.ilike.{q_tag},title.ilike.{q_tag},category.ilike.{q_tag}"
+        ).execute()
+        results = response.data
+        
+        # Fallback 1: only tag
+        if not results:
+            response = self.supabase.table("recipes").select("*").or_(
+                f"tags.ilike.{q_tag},about.ilike.{q_tag},ingredients.ilike.{q_tag},title.ilike.{q_tag},category.ilike.{q_tag}"
+            ).execute()
+            results = response.data
             
-            # Map user-friendly tags to internal search terms
-            tag_map = {
-                "light": "лёгкое",
-                "hearty": "сытное",
-                "kids": "для детей"
-            }
-            search_tag = tag_map.get(tag, tag)
+        # Fallback 2: only time
+        if not results:
+            response = self.supabase.table("recipes").select("*").eq("time_category", time_category).execute()
+            results = response.data
             
-            # Smart search: by time AND tag in ingredients/about/tags
-            # We also search in title and category for better matching
-            cursor.execute("""
-                SELECT * FROM recipes 
-                WHERE time_category = ? 
-                AND (tags LIKE ? OR about LIKE ? OR ingredients LIKE ? OR title LIKE ? OR category LIKE ?)
-                ORDER BY RANDOM()
-            """, (time_category, f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%"))
-            results = [dict(row) for row in cursor.fetchall()]
-            
-            # Fallback 1: only tag (if time is too restrictive)
-            if not results:
-                cursor.execute("""
-                    SELECT * FROM recipes 
-                    WHERE tags LIKE ? OR about LIKE ? OR ingredients LIKE ? OR title LIKE ? OR category LIKE ?
-                    ORDER BY RANDOM()
-                """, (f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%"))
-                results = [dict(row) for row in cursor.fetchall()]
-            
-            # Fallback 2: only time
-            if not results:
-                cursor.execute("SELECT * FROM recipes WHERE time_category = ? ORDER BY RANDOM()", (time_category,))
-                results = [dict(row) for row in cursor.fetchall()]
-            
-            # Fallback 3: random
-            if not results:
-                cursor.execute("SELECT * FROM recipes ORDER BY RANDOM() LIMIT 5")
-                results = [dict(row) for row in cursor.fetchall()]
+        # Fallback 3: random (we'll just take first 5 for simplicity instead of true random)
+        if not results:
+            response = self.supabase.table("recipes").select("*").limit(5).execute()
+            results = response.data
                 
-            return results
+        return results
 
     async def get_recipes_by_tag(self, tag: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM recipes WHERE tags LIKE ?", (f"%{tag}%",))
-            return [dict(row) for row in cursor.fetchall()]
+        response = self.supabase.table("recipes").select("*").ilike("tags", f"%{tag}%").execute()
+        return response.data
 
     async def get_recipes_by_meal_type(self, meal_type: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM recipes WHERE meal_type = ?", (meal_type,))
-            return [dict(row) for row in cursor.fetchall()]
+        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).execute()
+        return response.data
 
     async def get_recipes_by_meal_and_cat(self, meal_type: str, category: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM recipes WHERE meal_type = ? AND category = ?", (meal_type, category))
-            return [dict(row) for row in cursor.fetchall()]
+        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).eq("category", category).execute()
+        return response.data
 
     async def delete_recipe(self, recipe_id: int):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-            conn.commit()
+        self.supabase.table("recipes").delete().eq("id", recipe_id).execute()
 
     async def update_recipe(self, recipe_id: int, data: Dict[str, Any]):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE recipes SET 
-                    title = ?, about = ?, ingredients = ?, steps = ?, 
-                    tips = ?, serving = ?, substitutions = ?, tags = ?, 
-                    category = ?, meal_type = ?, time_category = ?, cook_time = ?, 
-                    portions = ?, photo_id = ?
-                WHERE id = ?
-            """, (
-                data['title'], data['about'], data['ingredients'], data['steps'], 
-                data.get('tips', ''), data.get('serving', ''), data.get('substitutions', ''), 
-                json.dumps(data.get('tags', [])), data['category'], data.get('meal_type', ''), 
-                data['time_category'], data.get('cook_time', 0), data.get('portions', ''), 
-                data.get('photo_id'), recipe_id
-            ))
-            conn.commit()
+        recipe_data = {
+            'title': data['title'],
+            'about': data['about'],
+            'ingredients': data['ingredients'],
+            'steps': data['steps'],
+            'tips': data.get('tips', ''),
+            'serving': data.get('serving', ''),
+            'substitutions': data.get('substitutions', ''),
+            'tags': json.dumps(data.get('tags', []), ensure_ascii=False) if isinstance(data.get('tags'), list) else data.get('tags'),
+            'category': data['category'],
+            'meal_type': data.get('meal_type', ''),
+            'time_category': data['time_category'],
+            'cook_time': data.get('cook_time', 0),
+            'portions': data.get('portions', ''),
+            'photo_id': data.get('photo_id')
+        }
+        self.supabase.table("recipes").update(recipe_data).eq("id", recipe_id).execute()
 
     async def get_user(self, user_id: int):
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        response = self.supabase.table("users").select("*").eq("user_id", user_id).execute()
+        return response.data[0] if response.data else None
 
     async def add_user(self, user_id: int):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
-            conn.commit()
+        self.supabase.table("users").upsert({'user_id': user_id}).execute()
 
     async def set_onboarded(self, user_id: int):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET is_onboarded = 1 WHERE user_id = ?", (user_id,))
-            conn.commit()
+        self.supabase.table("users").update({'is_onboarded': 1}).eq("user_id", user_id).execute()
 
     async def get_all_user_ids(self) -> List[int]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT user_id FROM users")
-            return [row[0] for row in cursor.fetchall()]
+        response = self.supabase.table("users").select("user_id").execute()
+        return [row['user_id'] for row in response.data]
 
     # CONSTRUCTORS
     async def add_constructor(self, data: Dict[str, Any]):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO constructors (
-                    title, suitable_for, principle, basis, protein, fats, fiber, 
-                    how_to_assemble, flexibility, lifehacks, kids_recommendation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data['title'], data['suitable_for'], data['principle'], data['basis'],
-                data['protein'], data['fats'], data['fiber'], data['how_to_assemble'],
-                data['flexibility'], data['lifehacks'], data['kids_recommendation']
-            ))
-            conn.commit()
-            return cursor.lastrowid
+        response = self.supabase.table("constructors").insert(data).execute()
+        return response.data[0]['id']
 
     async def get_constructors(self) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            # Only return "real" constructors that have a basis/principle
-            cursor.execute("SELECT * FROM constructors WHERE basis IS NOT NULL OR principle IS NOT NULL")
-            return [dict(row) for row in cursor.fetchall()]
+        # Only return "real" constructors that have a basis or principle
+        response = self.supabase.table("constructors").select("*").or_("basis.not.is.null,principle.not.is.null").execute()
+        return response.data
 
     async def get_constructor_by_id(self, const_id: int) -> Optional[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM constructors WHERE id = ?", (const_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        response = self.supabase.table("constructors").select("*").eq("id", const_id).execute()
+        return response.data[0] if response.data else None
 
     async def update_constructor(self, const_id: int, data: Dict[str, Any]):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE constructors SET 
-                    title = ?, suitable_for = ?, principle = ?, basis = ?, 
-                    protein = ?, fats = ?, fiber = ?, how_to_assemble = ?, 
-                    flexibility = ?, lifehacks = ?, kids_recommendation = ?,
-                    photo_id = ?
-                WHERE id = ?
-            """, (
-                data['title'], data['suitable_for'], data['principle'], data['basis'],
-                data['protein'], data['fats'], data['fiber'], data['how_to_assemble'],
-                data['flexibility'], data['lifehacks'], data['kids_recommendation'],
-                data.get('photo_id'), const_id
-            ))
-            conn.commit()
+        self.supabase.table("constructors").update(data).eq("id", const_id).execute()
 
     async def get_all_tips_and_hacks(self):
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # 1. From Constructors
-            cursor.execute("SELECT id, title, lifehacks FROM constructors WHERE lifehacks IS NOT NULL AND lifehacks != ''")
-            hacks = [dict(row) for row in cursor.fetchall()]
-            
-            # 2. From Recipes
-            cursor.execute("SELECT title, tips, category FROM recipes WHERE tips IS NOT NULL AND tips != ''")
-            recipe_tips = [dict(row) for row in cursor.fetchall()]
-            
-            return hacks, recipe_tips
+        # 1. From Constructors
+        response_hacks = self.supabase.table("constructors").select("id,title,lifehacks").neq("lifehacks", "").execute()
+        hacks = response_hacks.data
+        
+        # 2. From Recipes
+        response_tips = self.supabase.table("recipes").select("title,tips,category").neq("tips", "").execute()
+        recipe_tips = response_tips.data
+        
+        return hacks, recipe_tips
 
     async def get_setting(self, key: str, default: str = "") -> str:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            return row[0] if row else default
+        response = self.supabase.table("settings").select("value").eq("key", key).execute()
+        return response.data[0]['value'] if response.data else default
 
     async def update_setting(self, key: str, value: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
-            conn.commit()
+        self.supabase.table("settings").upsert({'key': key, 'value': value}).execute()
 
     async def get_random_recipe_by_filters(self, meal_type: str, time_category: str, tag: str) -> Optional[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            tag_map = {"light": "лёгкое", "hearty": "сытное", "kids": "для детей"}
-            search_tag = tag_map.get(tag, tag)
-            
-            # Try strict match: meal_type + time + tag
-            cursor.execute("""
-                SELECT * FROM recipes 
-                WHERE meal_type = ? AND time_category = ? 
-                AND (tags LIKE ? OR about LIKE ? OR ingredients LIKE ? OR title LIKE ? OR category LIKE ?)
-                ORDER BY RANDOM() LIMIT 1
-            """, (meal_type, time_category, f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%"))
-            row = cursor.fetchone()
-            if row: return dict(row)
-            
-            # Fallback 1: meal_type + tag
-            cursor.execute("""
-                SELECT * FROM recipes 
-                WHERE meal_type = ? 
-                AND (tags LIKE ? OR about LIKE ? OR ingredients LIKE ? OR title LIKE ? OR category LIKE ?)
-                ORDER BY RANDOM() LIMIT 1
-            """, (meal_type, f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%", f"%{search_tag}%"))
-            row = cursor.fetchone()
-            if row: return dict(row)
-            
-            # Fallback 2: meal_type + time
-            cursor.execute("SELECT * FROM recipes WHERE meal_type = ? AND time_category = ? ORDER BY RANDOM() LIMIT 1", (meal_type, time_category))
-            row = cursor.fetchone()
-            if row: return dict(row)
-            
-            # Fallback 3: meal_type only
-            cursor.execute("SELECT * FROM recipes WHERE meal_type = ? ORDER BY RANDOM() LIMIT 1", (meal_type,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        tag_map = {"light": "лёгкое", "hearty": "сытное", "kids": "для детей"}
+        search_tag = tag_map.get(tag, tag)
+        q_tag = f"%{search_tag}%"
+        
+        # Try strict match: meal_type + time + tag
+        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).eq("time_category", time_category).or_(
+            f"tags.ilike.{q_tag},about.ilike.{q_tag},ingredients.ilike.{q_tag},title.ilike.{q_tag},category.ilike.{q_tag}"
+        ).limit(1).execute()
+        if response.data: return response.data[0]
+        
+        # Fallback 1: meal_type + tag
+        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).or_(
+            f"tags.ilike.{q_tag},about.ilike.{q_tag},ingredients.ilike.{q_tag},title.ilike.{q_tag},category.ilike.{q_tag}"
+        ).limit(1).execute()
+        if response.data: return response.data[0]
+        
+        # Fallback 2: meal_type + time
+        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).eq("time_category", time_category).limit(1).execute()
+        if response.data: return response.data[0]
+        
+        # Fallback 3: meal_type only
+        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).limit(1).execute()
+        return response.data[0] if response.data else None
 
 db = Database()

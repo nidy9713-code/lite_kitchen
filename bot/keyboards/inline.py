@@ -42,6 +42,7 @@ def get_main_menu():
     builder.row(InlineKeyboardButton(text="💡 Советы", callback_data="tips"))
     builder.row(InlineKeyboardButton(text="📥 PDF", callback_data="get_pdf"))
     builder.row(InlineKeyboardButton(text="ℹ️ О проекте", callback_data="about"))
+    builder.row(InlineKeyboardButton(text="💬 Задать вопрос", callback_data="ask_question"))
     builder.adjust(2)
     return builder.as_markup()
 
@@ -174,6 +175,7 @@ def get_admin_main():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="➕ Добавить рецепт", callback_data="admin_add"))
     builder.row(InlineKeyboardButton(text="✏️ Редактировать разделы", callback_data="admin_edit_sections"))
+    builder.row(InlineKeyboardButton(text="📁 Управление категориями", callback_data="admin_edit_categories"))
     builder.row(InlineKeyboardButton(text="❌ Удалить рецепт", callback_data="admin_delete_list"))
     builder.row(InlineKeyboardButton(text="🏠 В меню", callback_data="start"))
     builder.adjust(1)

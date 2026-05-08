@@ -1,4 +1,6 @@
 import asyncio
+import json
+import re
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -12,6 +14,27 @@ from bot.database.db import db
 from config import ADMIN_IDS
 
 router = Router()
+
+def clean_input(text, header_pattern=None):
+    if not text or text == "-":
+        return text
+    
+    res = text.strip()
+    if header_pattern:
+        res = re.sub(header_pattern, '', res, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Remove leading bullets/numbers from each line if they were copied from template
+    lines = res.strip().split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            # Only remove if it looks like a template placeholder or a bullet
+            line = re.sub(r'^[—\-•📌]\s*', '', line)
+            if line and line != "…":
+                cleaned_lines.append(line)
+    
+    return "\n".join(cleaned_lines)
 
 class AdminStates(StatesGroup):
     waiting_for_title = State()
@@ -58,82 +81,85 @@ async def process_title(message: types.Message, state: FSMContext):
     await state.update_data(title=message.text)
     await state.set_state(AdminStates.waiting_for_about)
     template = (
-        "💛 О рецепте:\n"
-        "- (1–2 коротких предложения: зачем блюдо, польза, когда удобно)\n"
-        "- (при необходимости обучающая сноска, например:)\n"
-        "  Этот рецепт — хороший способ добавить овощи в рацион, особенно если хочется чего-то быстрого и понятного 👍"
+        "Введите 1–2 коротких предложения: зачем блюдо, польза, когда удобно.\n"
+        "При необходимости добавьте обучающую сноску.\n\n"
+        "⚠️ НЕ пишите заголовок '💛 О рецепте', он добавится автоматически."
     )
-    await message.answer(f"Введите описание по шаблону:\n\n{template}", protect_content=True)
+    await message.answer(template, protect_content=True)
 
 @router.message(AdminStates.waiting_for_about)
 async def process_about(message: types.Message, state: FSMContext):
-    await state.update_data(about=message.text)
+    await state.update_data(about=clean_input(message.text, r'^💛\s*О рецепте:?\s*'))
     await state.set_state(AdminStates.waiting_for_ingredients)
     template = (
-        "🛒 Ингредиенты:\n"
-        "- …\n"
-        "- …\n"
-        "- …\n\n"
-        "*по желанию:\n"
-        "- …"
+        "Введите список ингредиентов (каждый с новой строки).\n"
+        "Для необязательных используйте пометку '* по желанию:'.\n\n"
+        "⚠️ НЕ пишите заголовок '🛒 Ингредиенты', он добавится автоматически."
     )
-    await message.answer(f"Введите ингредиенты по шаблону:\n\n{template}", protect_content=True)
+    await message.answer(template, protect_content=True)
 
 @router.message(AdminStates.waiting_for_ingredients)
 async def process_ingredients(message: types.Message, state: FSMContext):
-    await state.update_data(ingredients=message.text)
+    await state.update_data(ingredients=clean_input(message.text, r'^🛒\s*Ингредиенты:?\s*'))
     await state.set_state(AdminStates.waiting_for_steps)
     template = (
-        "👩‍🍳 Приготовление:\n"
-        "- шаг 1\n"
-        "- шаг 2\n"
-        "- шаг 3\n"
-        "- шаг 4"
+        "Введите шаги приготовления (каждый с новой строки).\n\n"
+        "⚠️ НЕ пишите заголовок '👩‍🍳 Приготовление', он добавится автоматически."
     )
-    await message.answer(f"Введите шаги приготовления по шаблону:\n\n{template}", protect_content=True)
+    await message.answer(template, protect_content=True)
 
 @router.message(AdminStates.waiting_for_steps)
 async def process_steps(message: types.Message, state: FSMContext):
-    await state.update_data(steps=message.text)
+    await state.update_data(steps=clean_input(message.text, r'^👩‍🍳\s*Приготовление:?\s*'))
     await state.set_state(AdminStates.waiting_for_tips)
     template = (
-        "💡 Подсказка:\n"
-        "- лайфхак или уточнение (1 мысль = 1 строка)"
+        "Введите лайфхак или уточнение (или '-' если нет).\n\n"
+        "⚠️ НЕ пишите заголовок '💡 Подсказка', он добавится автоматически."
     )
-    await message.answer(f"Введите подсказку по шаблону (или '-' если нет):\n\n{template}", protect_content=True)
+    await message.answer(template, protect_content=True)
 
 @router.message(AdminStates.waiting_for_tips)
 async def process_tips(message: types.Message, state: FSMContext):
-    await state.update_data(tips=message.text if message.text != "-" else "")
+    val = clean_input(message.text, r'^💡\s*Подсказка:?\s*')
+    await state.update_data(tips=val if val != "-" else "")
     await state.set_state(AdminStates.waiting_for_serving)
     template = (
-        "🍽 Подача:\n"
-        "- с чем подавать\n"
-        "- чем дополнить"
+        "Введите рекомендации по подаче.\n\n"
+        "⚠️ НЕ пишите заголовок '🍽 Подача', он добавится автоматически."
     )
-    await message.answer(f"Введите подачу по шаблону:\n\n{template}", protect_content=True)
+    await message.answer(template, protect_content=True)
 
 @router.message(AdminStates.waiting_for_serving)
 async def process_serving(message: types.Message, state: FSMContext):
-    await state.update_data(serving=message.text)
+    await state.update_data(serving=clean_input(message.text, r'^🍽\s*Подача:?\s*'))
     await state.set_state(AdminStates.waiting_for_substitutions)
     template = (
-        "🔄 Замены:\n"
-        "- ингредиент → замена\n"
-        "- ингредиент → замена"
+        "Введите возможные замены (например: ингредиент → замена).\n\n"
+        "⚠️ НЕ пишите заголовок '🔄 Замены', он добавится автоматически."
     )
-    await message.answer(f"Введите замены по шаблону:\n\n{template}", protect_content=True)
+    await message.answer(template, protect_content=True)
 
 @router.message(AdminStates.waiting_for_substitutions)
 async def process_substitutions(message: types.Message, state: FSMContext):
-    await state.update_data(substitutions=message.text)
+    await state.update_data(substitutions=clean_input(message.text, r'^🔄\s*Замены:?\s*'))
     await state.set_state(AdminStates.waiting_for_category)
     
     builder = InlineKeyboardBuilder()
     for cat in CATEGORIES:
         if cat != "Все":
             builder.row(InlineKeyboardButton(text=cat, callback_data=f"admin_cat_{cat}"))
+    
+    builder.row(InlineKeyboardButton(text="➕ Добавить новую категорию", callback_data="admin_add_new_cat_flow"))
+    builder.adjust(2)
     await message.answer("Выберите категорию:", reply_markup=builder.as_markup(), protect_content=True)
+
+@router.callback_query(F.data == "admin_add_new_cat_flow")
+async def admin_add_new_cat_flow(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.waiting_for_new_category_name)
+    # We'll use a flag in state to know where to return
+    await state.update_data(return_to_add_recipe=True)
+    await callback.message.answer("Введите название новой категории:", protect_content=True)
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("admin_cat_"))
 async def process_category(callback: types.CallbackQuery, state: FSMContext):
@@ -163,17 +189,20 @@ async def process_cook_time(message: types.Message, state: FSMContext):
         await state.update_data(cook_time=cook_time)
         await state.set_state(AdminStates.waiting_for_suitable)
         template = (
-            "📌 Подходит:\n"
-            "- для детей / семьи\n"
-            "- без глютена / без молока / другие условия (если применимо)"
+            "Введите теги через запятую. Рекомендуемые теги:\n"
+            "для детей, десерт, завтрак, перекус, для всей семьи, без глютена, без молока.\n\n"
+            "⚠️ НЕ пишите заголовок '📌 Подходит', он добавится автоматически."
         )
-        await message.answer(f"Введите теги по шаблону (через запятую или '-' если нет):\n\n{template}", protect_content=True)
+        await message.answer(template, protect_content=True)
     except ValueError:
         await message.answer("Пожалуйста, введите число.", protect_content=True)
 
 @router.message(AdminStates.waiting_for_suitable)
 async def process_suitable(message: types.Message, state: FSMContext):
-    suitable = [s.strip() for s in message.text.split(",")] if message.text != "-" else []
+    text = clean_input(message.text, r'^📌\s*Подходит:?\s*')
+    suitable = [s.strip() for s in text.replace('\n', ',').split(",")] if text != "-" else []
+    # Filter out empty strings and template placeholders
+    suitable = [s for s in suitable if s and s != "…"]
     await state.update_data(tags=suitable)
     await state.set_state(AdminStates.waiting_for_photo)
     await message.answer("Отправьте фото блюда или '-' если фото нет:", protect_content=True)
@@ -510,13 +539,13 @@ async def admin_edit_field_start(callback: types.CallbackQuery, state: FSMContex
     await state.update_data(edit_field=field)
     
     templates = {
-        "about": "💛 О рецепте:\n- (1–2 коротких предложения: зачем блюдо, польза, когда удобно)\n- (при необходимости обучающая сноска, например:)\n  Этот рецепт — хороший способ добавить овощи в рацион, особенно если хочется чего-то быстрого и понятного 👍",
-        "ingredients": "🛒 Ингредиенты:\n- …\n- …\n- …\n\n*по желанию:\n- …",
-        "steps": "👩‍🍳 Приготовление:\n- шаг 1\n- шаг 2\n- шаг 3\n- шаг 4",
-        "tips": "💡 Подсказка:\n- лайфхак или уточнение (1 мысль = 1 строка)",
-        "serving": "🍽 Подача:\n- с чем подавать\n- чем дополнить",
-        "substitutions": "🔄 Замены:\n- ингредиент → замена\n- ингредиент → замена",
-        "tags": "📌 Подходит:\n- для детей / семьи\n- без глютена / без молока / другие условия (если применимо)"
+        "about": "Введите 1–2 коротких предложения.\n⚠️ НЕ пишите заголовок '💛 О рецепте'.",
+        "ingredients": "Введите список ингредиентов.\n⚠️ НЕ пишите заголовок '🛒 Ингредиенты'.",
+        "steps": "Введите шаги приготовления.\n⚠️ НЕ пишите заголовок '👩‍🍳 Приготовление'.",
+        "tips": "Введите лайфхак или уточнение.\n⚠️ НЕ пишите заголовок '💡 Подсказка'.",
+        "serving": "Введите рекомендации по подаче.\n⚠️ НЕ пишите заголовок '🍽 Подача'.",
+        "substitutions": "Введите возможные замены.\n⚠️ НЕ пишите заголовок '🔄 Замены'.",
+        "tags": "Введите теги через запятую (для детей, десерт, завтрак, перекус, для всей семьи).\n⚠️ НЕ пишите заголовок '📌 Подходит'."
     }
     
     template = templates.get(field, "")
@@ -682,12 +711,23 @@ async def admin_edit_save(callback: types.CallbackQuery, state: FSMContext):
     recipe_id = data['edit_recipe_id']
     recipe_data = data['edit_recipe_data']
     
-    # Tags need to be handled if they were changed (though not in the menu yet)
+    # Ensure tags are a list, not double-encoded string
     if isinstance(recipe_data.get('tags'), str):
+        tags_str = recipe_data['tags']
+        # Try to decode if it's already JSON
         try:
-            recipe_data['tags'] = json.loads(recipe_data['tags'])
+            while isinstance(tags_str, str) and (tags_str.startswith('[') or tags_str.startswith('"')):
+                new_val = json.loads(tags_str)
+                if new_val == tags_str: break
+                tags_str = new_val
         except:
-            recipe_data['tags'] = [t.strip() for t in recipe_data['tags'].split('\n') if t.strip()]
+            pass
+            
+        if isinstance(tags_str, list):
+            recipe_data['tags'] = tags_str
+        else:
+            # If it's a plain string, split by commas or newlines
+            recipe_data['tags'] = [t.strip() for t in tags_str.replace('\n', ',').split(',') if t.strip() and t != "…"]
 
     await db.update_recipe(recipe_id, recipe_data)
     await callback.answer("✅ Изменения сохранены!", show_alert=True)
@@ -744,16 +784,16 @@ async def admin_edit_const_field_start(callback: types.CallbackQuery, state: FSM
     await state.update_data(edit_const_field=field)
     
     templates = {
-        "suitable_for": "⏱ Подходит для:\n- …\n- …",
-        "principle": "💛 Суть:\n- …\n- …",
-        "basis": "📦 Основа:\n- …\n- …",
-        "protein": "🍗 Белок:\n- …\n- …",
-        "fats": "🥑 Жиры:\n- …\n- …",
-        "fiber": "🥬 Овощи / клетчатка:\n- …\n- …",
-        "how_to_assemble": "👨‍🍳 Как собрать:\n- …\n- …\n\n💡 Пример сочетания:\nНапример: …",
-        "flexibility": "🔄 Замены:\n- … → …\n- … → …",
-        "lifehacks": "✨ Лайфхаки:\n- …\n- …\n- …",
-        "kids_recommendation": "👶 Для детей:\n- …"
+        "suitable_for": "Введите, кому подходит.\n⚠️ НЕ пишите заголовок '⏱ Подходит для'.",
+        "principle": "Введите суть принципа.\n⚠️ НЕ пишите заголовок '💛 Суть'.",
+        "basis": "Введите основу.\n⚠️ НЕ пишите заголовок '📦 Основа'.",
+        "protein": "Введите белок.\n⚠️ НЕ пишите заголовок '🍗 Белок'.",
+        "fats": "Введите жиры.\n⚠️ НЕ пишите заголовок '🥑 Жиры'.",
+        "fiber": "Введите овощи / клетчатку.\n⚠️ НЕ пишите заголовок '🥬 Овощи / клетчатка'.",
+        "how_to_assemble": "Введите, как собрать.\n⚠️ НЕ пишите заголовок '👨‍🍳 Как собрать'.",
+        "flexibility": "Введите замены.\n⚠️ НЕ пишите заголовок '🔄 Замены'.",
+        "lifehacks": "Введите лайфхаки.\n⚠️ НЕ пишите заголовок '✨ Лайфхаки'.",
+        "kids_recommendation": "Введите рекомендации для детей.\n⚠️ НЕ пишите заголовок '👶 Для детей'."
     }
     
     template = templates.get(field, "")
@@ -843,6 +883,9 @@ async def admin_cat_add_start(callback: types.CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_for_new_category_name)
 async def process_new_category(message: types.Message, state: FSMContext):
     new_cat = message.text.strip()
+    data = await state.get_data()
+    return_to_add = data.get('return_to_add_recipe', False)
+    
     if new_cat and new_cat not in CATEGORIES:
         CATEGORIES.append(new_cat)
         # Сохраняем в файл, чтобы не пропало после перезагрузки
@@ -851,18 +894,46 @@ async def process_new_category(message: types.Message, state: FSMContext):
                 content = f.read()
             
             # Находим список CATEGORIES и добавляем туда новую категорию
-            cat_list_str = str(CATEGORIES).replace("'", '"')
-            new_content = re.sub(r'CATEGORIES = \[.*?\]', f'CATEGORIES = {cat_list_str}', content, flags=re.DOTALL)
+            # Используем более надежный способ замены
+            cat_list_str = "CATEGORIES = [\n    " + ",\n    ".join([f'"{c}"' for c in CATEGORIES]) + "\n]"
+            new_content = re.sub(r'CATEGORIES = \[.*?\]', cat_list_str, content, flags=re.DOTALL)
             
             with open("bot/keyboards/inline.py", "w", encoding="utf-8") as f:
                 f.write(new_content)
                 
-            await message.answer(f"✅ Категория '{new_cat}' успешно добавлена!", reply_markup=get_admin_main(), protect_content=True)
+            await message.answer(f"✅ Категория '{new_cat}' успешно добавлена!", protect_content=True)
+            
+            if return_to_add:
+                # Возвращаемся к выбору категории в процессе добавления рецепта
+                await state.set_state(AdminStates.waiting_for_category)
+                builder = InlineKeyboardBuilder()
+                for cat in CATEGORIES:
+                    if cat != "Все":
+                        builder.row(InlineKeyboardButton(text=cat, callback_data=f"admin_cat_{cat}"))
+                builder.row(InlineKeyboardButton(text="➕ Добавить новую категорию", callback_data="admin_add_new_cat_flow"))
+                builder.adjust(2)
+                await message.answer("Теперь выберите категорию для рецепта:", reply_markup=builder.as_markup(), protect_content=True)
+            else:
+                await message.answer("🛠 Панель администратора", reply_markup=get_admin_main(), protect_content=True)
+                await state.clear()
         except Exception as e:
             await message.answer(f"❌ Ошибка при сохранении категории: {e}", protect_content=True)
+            if not return_to_add:
+                await state.clear()
     else:
         await message.answer("Такая категория уже существует или название пустое.", protect_content=True)
-    await state.clear()
+        if not return_to_add:
+            await state.clear()
+        else:
+            # Show the category selection again even if adding failed
+            await state.set_state(AdminStates.waiting_for_category)
+            builder = InlineKeyboardBuilder()
+            for cat in CATEGORIES:
+                if cat != "Все":
+                    builder.row(InlineKeyboardButton(text=cat, callback_data=f"admin_cat_{cat}"))
+            builder.row(InlineKeyboardButton(text="➕ Добавить новую категорию", callback_data="admin_add_new_cat_flow"))
+            builder.adjust(2)
+            await message.answer("Выберите категорию из списка:", reply_markup=builder.as_markup(), protect_content=True)
 
 @router.callback_query(F.data == "admin_panel")
 async def back_to_admin_panel(callback: types.CallbackQuery, state: FSMContext):

@@ -2,6 +2,8 @@ from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton
 from bot.keyboards.inline import (
     get_main_menu, get_categories_main_keyboard, get_product_categories_keyboard, get_recipe_list_keyboard,
     get_time_selection, get_tag_selection, get_tips_keyboard, get_final_options, get_back_button,
@@ -31,14 +33,20 @@ def format_recipe(r):
 
     if r.get('about'):
         text += f"💛 О рецепте:\n"
-        for line in r['about'].strip().split('\n'):
+        about_text = r['about'].strip()
+        # Remove header if user included it
+        about_text = re.sub(r'^💛\s*О рецепте:?\s*', '', about_text, flags=re.IGNORECASE | re.MULTILINE)
+        for line in about_text.split('\n'):
             if line.strip():
                 text += f"- {line.strip()}\n"
         text += "\n---\n\n"
         
     if r.get('ingredients'):
         text += f"🛒 Ингредиенты:\n"
-        ings = r['ingredients'].strip().split('\n')
+        ing_text = r['ingredients'].strip()
+        # Remove header if user included it
+        ing_text = re.sub(r'^🛒\s*Ингредиенты:?\s*', '', ing_text, flags=re.IGNORECASE | re.MULTILINE)
+        ings = ing_text.split('\n')
         main_ings = []
         optional_ings = []
         is_optional = False
@@ -59,47 +67,59 @@ def format_recipe(r):
                 main_ings.append(line)
         
         for ing in main_ings:
-            clean_ing = re.sub(r'^[📌—\-]\s*', '', ing)
+            clean_ing = re.sub(r'^[📌—\-•]\s*', '', ing)
             text += f"- {clean_ing}\n"
             
         if optional_ings:
             text += "\n*по желанию:\n"
             for ing in optional_ings:
-                clean_ing = re.sub(r'^[📌—\-]\s*', '', ing)
+                clean_ing = re.sub(r'^[📌—\-•]\s*', '', ing)
                 text += f"- {clean_ing}\n"
         text += "\n---\n\n"
         
     if r.get('steps'):
         text += f"👩‍🍳 Приготовление:\n"
-        steps = r['steps'].strip().split('\n')
+        steps_text = r['steps'].strip()
+        # Remove header if user included it
+        steps_text = re.sub(r'^👩‍🍳\s*Приготовление:?\s*', '', steps_text, flags=re.IGNORECASE | re.MULTILINE)
+        steps = steps_text.split('\n')
         for line in steps:
             line = line.strip()
             if not line: continue
-            clean_step = re.sub(r'^(\d+\.|\-)\s*', '', line)
+            clean_step = re.sub(r'^(\d+\.|\-|•)\s*', '', line)
             text += f"- {clean_step}\n"
         text += "\n---\n\n"
         
     if r.get('tips'):
         text += f"💡 Подсказка:\n"
-        for line in r['tips'].strip().split('\n'):
+        tips_text = r['tips'].strip()
+        # Remove header if user included it
+        tips_text = re.sub(r'^💡\s*Подсказка:?\s*', '', tips_text, flags=re.IGNORECASE | re.MULTILINE)
+        for line in tips_text.split('\n'):
             if line.strip():
                 text += f"- {line.strip()}\n"
         text += "\n---\n\n"
         
     if r.get('serving'):
         text += f"🍽 Подача:\n"
-        for line in r['serving'].strip().split('\n'):
+        serving_text = r['serving'].strip()
+        # Remove header if user included it
+        serving_text = re.sub(r'^🍽\s*Подача:?\s*', '', serving_text, flags=re.IGNORECASE | re.MULTILINE)
+        for line in serving_text.split('\n'):
             if line.strip():
                 text += f"- {line.strip()}\n"
         text += "\n---\n\n"
         
     if r.get('substitutions'):
         text += f"🔄 Замены:\n"
-        subs = r['substitutions'].strip().split('\n')
+        subs_text = r['substitutions'].strip()
+        # Remove header if user included it
+        subs_text = re.sub(r'^🔄\s*Замены:?\s*', '', subs_text, flags=re.IGNORECASE | re.MULTILINE)
+        subs = subs_text.split('\n')
         for line in subs:
             line = line.strip()
             if not line: continue
-            clean_sub = re.sub(r'^[—\-]\s*', '', line)
+            clean_sub = re.sub(r'^[—\-•]\s*', '', line)
             clean_sub = clean_sub.replace("->", "→").replace("—", "→")
             if "→" not in clean_sub and ":" in clean_sub:
                 clean_sub = clean_sub.replace(":", " →", 1)
@@ -109,9 +129,20 @@ def format_recipe(r):
     suitable_tags = []
     if r.get('tags'):
         try:
-            tags = json.loads(r['tags'])
-            if isinstance(tags, list): suitable_tags = tags
-            else: suitable_tags = [tags]
+            # Handle possible multiple encodings
+            tags_val = r['tags']
+            while isinstance(tags_val, str) and (tags_val.startswith('[') or tags_val.startswith('"')):
+                try:
+                    new_val = json.loads(tags_val)
+                    if new_val == tags_val: break # Prevent infinite loop
+                    tags_val = new_val
+                except:
+                    break
+            
+            if isinstance(tags_val, list): 
+                suitable_tags = tags_val
+            elif isinstance(tags_val, str):
+                suitable_tags = [t.strip() for t in tags_val.split('\n') if t.strip()]
         except:
             if isinstance(r['tags'], str):
                 suitable_tags = [t.strip() for t in r['tags'].split('\n') if t.strip()]
@@ -119,8 +150,11 @@ def format_recipe(r):
     if suitable_tags:
         text += "📌 Подходит:\n"
         for tag in suitable_tags:
-            clean_tag = re.sub(r'^[—\-]\s*', '', tag.strip())
-            text += f"- {clean_tag}\n"
+            # Remove header if it leaked into tags
+            tag = re.sub(r'^📌\s*Подходит:?\s*', '', tag, flags=re.IGNORECASE)
+            clean_tag = re.sub(r'^[—\-•]\s*', '', tag.strip())
+            if clean_tag:
+                text += f"- {clean_tag}\n"
             
     return text.strip().rstrip('-').strip()
 
@@ -128,9 +162,13 @@ def format_constructor(c):
     title = c['title'].strip().rstrip(':')
     text = f"🧩 <b>Конструктор: {title}</b>\n\n"
     
-    def format_list(val):
+    def format_list(val, header_pattern=None):
         if not val: return ""
-        lines = str(val).strip().split('\n')
+        val_str = str(val).strip()
+        if header_pattern:
+            val_str = re.sub(header_pattern, '', val_str, flags=re.IGNORECASE | re.MULTILINE)
+            
+        lines = val_str.strip().split('\n')
         formatted = []
         for line in lines:
             line = line.strip()
@@ -152,60 +190,80 @@ def format_constructor(c):
         return "\n".join(formatted)
 
     if c.get('suitable_for') and str(c['suitable_for']).lower() != 'none':
-        text += f"⏱ Подходит для:\n{format_list(c['suitable_for'])}\n\n"
+        res = format_list(c['suitable_for'], r'^⏱\s*Подходит для:?\s*')
+        text += f"⏱ Подходит для:\n{res}\n\n"
         
     if c.get('principle') and str(c['principle']).lower() != 'none':
-        text += f"💛 Суть:\n{format_list(c['principle'])}\n\n"
+        res = format_list(c['principle'], r'^💛\s*Суть:?\s*')
+        text += f"💛 Суть:\n{res}\n\n"
         
     text += "---\n\n"
     
     is_lemonade = "лимонад" in title.lower()
     
     if c.get('basis') and str(c['basis']).lower() != 'none':
-        text += f"📦 Основа:\n{format_list(c['basis'])}\n\n"
+        res = format_list(c['basis'], r'^📦\s*Основа:?\s*')
+        text += f"📦 Основа:\n{res}\n\n"
         
     # For lemonade, protein is fruits, fats is sweetener, fiber is herbs
     if is_lemonade:
         if c.get('protein') and str(c['protein']).lower() != 'none':
-            text += f"🥗 Основные ингредиенты:\n{format_list(c['protein'])}\n\n"
+            res = format_list(c['protein'], r'^🥗\s*Основные ингредиенты:?\s*')
+            text += f"🥗 Основные ингредиенты:\n{res}\n\n"
         if c.get('fats') and str(c['fats']).lower() != 'none':
-            text += f"🌿 Дополнительно (сладкое):\n{format_list(c['fats'])}\n\n"
+            res = format_list(c['fats'], r'^🌿\s*Дополнительно\s*\(сладкое\):?\s*')
+            text += f"🌿 Дополнительно (сладкое):\n{res}\n\n"
         if c.get('fiber') and str(c['fiber']).lower() != 'none':
-            text += f"🌿 Дополнительно (травы):\n{format_list(c['fiber'])}\n\n"
+            res = format_list(c['fiber'], r'^🌿\s*Дополнительно\s*\(травы\):?\s*')
+            text += f"🌿 Дополнительно (травы):\n{res}\n\n"
     else:
         if c.get('protein') and str(c['protein']).lower() != 'none':
-            text += f"🍗 Белок:\n{format_list(c['protein'])}\n\n"
+            res = format_list(c['protein'], r'^🍗\s*Белок:?\s*')
+            text += f"🍗 Белок:\n{res}\n\n"
         if c.get('fats') and str(c['fats']).lower() != 'none':
-            text += f"🥑 Жиры:\n{format_list(c['fats'])}\n\n"
+            res = format_list(c['fats'], r'^🥑\s*Жиры:?\s*')
+            text += f"🥑 Жиры:\n{res}\n\n"
         if c.get('fiber') and str(c['fiber']).lower() != 'none':
-            text += f"🥬 Овощи / клетчатка:\n{format_list(c['fiber'])}\n\n"
+            res = format_list(c['fiber'], r'^🥬\s*Овощи\s*/\s*клетчатка:?\s*')
+            text += f"🥬 Овощи / клетчатка:\n{res}\n\n"
             
     if c.get('flexibility') and str(c['flexibility']).lower() != 'none':
         flex = str(c['flexibility'])
+        # Remove header if exists
+        flex = re.sub(r'^🔄\s*Замены:?\s*|^🌿\s*Дополнительно:?\s*', '', flex, flags=re.IGNORECASE | re.MULTILINE)
         if "замен" in flex.lower() or "→" in flex or "->" in flex:
-            text += f"🔄 Замены:\n{format_list(flex.replace('->', '→'))}\n\n"
+            res = format_list(flex.replace('->', '→'))
+            text += f"🔄 Замены:\n{res}\n\n"
         else:
-            text += f"🌿 Дополнительно:\n{format_list(flex)}\n\n"
+            res = format_list(flex)
+            text += f"🌿 Дополнительно:\n{res}\n\n"
             
     text += "---\n\n"
     
     if c.get('how_to_assemble') and str(c['how_to_assemble']).lower() != 'none':
         assemble = str(c['how_to_assemble'])
+        # Remove header
+        assemble = re.sub(r'^👨‍🍳\s*Как собрать:?\s*', '', assemble, flags=re.IGNORECASE | re.MULTILINE)
         if "например" in assemble.lower():
             # Split into "How to assemble" and "Example"
             parts = re.split(r'(?i)например:?', assemble)
             if parts[0].strip():
-                text += f"👨‍🍳 Как собрать:\n{format_list(parts[0])}\n\n---\n\n"
+                res = format_list(parts[0])
+                text += f"👨‍🍳 Как собрать:\n{res}\n\n---\n\n"
             if len(parts) > 1 and parts[1].strip():
-                text += f"💡 Пример сочетания:\n{format_list(parts[1])}\n\n---\n\n"
+                res = format_list(parts[1], r'^💡\s*Пример сочетания:?\s*')
+                text += f"💡 Пример сочетания:\n{res}\n\n---\n\n"
         else:
-            text += f"👨‍🍳 Как собрать:\n{format_list(assemble)}\n\n---\n\n"
+            res = format_list(assemble)
+            text += f"👨‍🍳 Как собрать:\n{res}\n\n---\n\n"
             
     if c.get('lifehacks') and str(c['lifehacks']).lower() != 'none':
-        text += f"✨ Лайфхаки:\n{format_list(c['lifehacks'])}\n\n---\n\n"
+        res = format_list(c['lifehacks'], r'^✨\s*Лайфхаки:?\s*')
+        text += f"✨ Лайфхаки:\n{res}\n\n---\n\n"
         
     if c.get('kids_recommendation') and str(c['kids_recommendation']).lower() != 'none':
-        text += f"👶 Для детей:\n{format_list(c['kids_recommendation'])}\n\n"
+        res = format_list(c['kids_recommendation'], r'^👶\s*Для детей:?\s*')
+        text += f"👶 Для детей:\n{res}\n\n"
         
     return text.strip().rstrip('-').strip()
 
@@ -722,4 +780,18 @@ async def show_constructor(callback: types.CallbackQuery):
 async def show_pdf(callback: types.CallbackQuery):
     pdf_text = await db.get_setting("pdf_text")
     await callback.message.edit_text(pdf_text, parse_mode="HTML", reply_markup=get_back_button("start"))
+    await callback.answer()
+
+# ASK QUESTION
+@router.callback_query(F.data == "ask_question")
+async def ask_question(callback: types.CallbackQuery):
+    text = (
+        "💛 Если у вас есть вопросы по рецептам, питанию или сочетанию продуктов — вы можете написать лично.\n\n"
+        "Иногда поддержка и возможность задать вопрос помогают не бросать заботу о себе ❤️"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="Написать в Telegram", url="https://t.me/diaChe"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
     await callback.answer()
