@@ -176,6 +176,7 @@ def get_admin_main():
     builder.row(InlineKeyboardButton(text="➕ Добавить рецепт", callback_data="admin_add"))
     builder.row(InlineKeyboardButton(text="✏️ Редактировать разделы", callback_data="admin_edit_sections"))
     builder.row(InlineKeyboardButton(text="📁 Управление категориями", callback_data="admin_edit_categories"))
+    builder.row(InlineKeyboardButton(text="🔑 Управление доступом", callback_data="admin_access_mgmt"))
     builder.row(InlineKeyboardButton(text="❌ Удалить рецепт", callback_data="admin_delete_list"))
     builder.row(InlineKeyboardButton(text="🏠 В меню", callback_data="start"))
     builder.adjust(1)

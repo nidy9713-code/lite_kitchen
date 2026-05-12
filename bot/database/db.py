@@ -127,8 +127,11 @@ class Database:
         response = self.supabase.table("users").select("*").eq("user_id", user_id).execute()
         return response.data[0] if response.data else None
 
-    async def add_user(self, user_id: int):
-        self.supabase.table("users").upsert({'user_id': user_id}).execute()
+    async def add_user(self, user_id: int, has_access: bool = False):
+        self.supabase.table("users").upsert({'user_id': user_id, 'has_access': has_access}).execute()
+
+    async def grant_access(self, user_id: int):
+        self.supabase.table("users").update({'has_access': True}).eq("user_id", user_id).execute()
 
     async def set_onboarded(self, user_id: int):
         self.supabase.table("users").update({'is_onboarded': 1}).eq("user_id", user_id).execute()

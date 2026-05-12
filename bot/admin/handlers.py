@@ -11,7 +11,7 @@ from bot.keyboards.inline import (
     get_admin_main, CATEGORIES, get_back_button, get_admin_edit_sections
 )
 from bot.database.db import db
-from config import ADMIN_IDS
+from config import ADMIN_IDS, is_admin
 
 router = Router()
 
@@ -51,6 +51,8 @@ class AdminStates(StatesGroup):
     waiting_for_photo = State()
     waiting_for_new_category_name = State()
     waiting_for_setting_value = State()
+    waiting_for_access_secret = State()
+    waiting_for_manual_uid = State()
 
 class EditStates(StatesGroup):
     waiting_for_recipe_selection = State()
@@ -60,20 +62,17 @@ class EditStates(StatesGroup):
     waiting_for_const_field_selection = State()
     waiting_for_const_new_value = State()
 
-def is_admin(user_id: int):
-    return user_id in ADMIN_IDS
-
 @router.message(Command("admin"))
 async def admin_start(message: types.Message):
     if not is_admin(message.from_user.id):
         return
-    await message.answer("🛠 Панель администратора", reply_markup=get_admin_main(), protect_content=True)
+    await message.answer("🛠 Панель администратора", reply_markup=get_admin_main(), protect_content=False)
 
 @router.callback_query(F.data == "admin_add")
 async def admin_add_start(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await state.set_state(AdminStates.waiting_for_title)
-    await callback.message.answer("Введите название блюда (🍽 Название блюда):", protect_content=True)
+    await callback.message.answer("Введите название блюда (🍽 Название блюда):", protect_content=False)
     await callback.answer()
 
 @router.message(AdminStates.waiting_for_title)
@@ -85,7 +84,7 @@ async def process_title(message: types.Message, state: FSMContext):
         "При необходимости добавьте обучающую сноску.\n\n"
         "⚠️ НЕ пишите заголовок '💛 О рецепте', он добавится автоматически."
     )
-    await message.answer(template, protect_content=True)
+    await message.answer(template, protect_content=False)
 
 @router.message(AdminStates.waiting_for_about)
 async def process_about(message: types.Message, state: FSMContext):
@@ -96,7 +95,7 @@ async def process_about(message: types.Message, state: FSMContext):
         "Для необязательных используйте пометку '* по желанию:'.\n\n"
         "⚠️ НЕ пишите заголовок '🛒 Ингредиенты', он добавится автоматически."
     )
-    await message.answer(template, protect_content=True)
+    await message.answer(template, protect_content=False)
 
 @router.message(AdminStates.waiting_for_ingredients)
 async def process_ingredients(message: types.Message, state: FSMContext):
@@ -106,7 +105,7 @@ async def process_ingredients(message: types.Message, state: FSMContext):
         "Введите шаги приготовления (каждый с новой строки).\n\n"
         "⚠️ НЕ пишите заголовок '👩‍🍳 Приготовление', он добавится автоматически."
     )
-    await message.answer(template, protect_content=True)
+    await message.answer(template, protect_content=False)
 
 @router.message(AdminStates.waiting_for_steps)
 async def process_steps(message: types.Message, state: FSMContext):
@@ -116,7 +115,7 @@ async def process_steps(message: types.Message, state: FSMContext):
         "Введите лайфхак или уточнение (или '-' если нет).\n\n"
         "⚠️ НЕ пишите заголовок '💡 Подсказка', он добавится автоматически."
     )
-    await message.answer(template, protect_content=True)
+    await message.answer(template, protect_content=False)
 
 @router.message(AdminStates.waiting_for_tips)
 async def process_tips(message: types.Message, state: FSMContext):
@@ -127,7 +126,7 @@ async def process_tips(message: types.Message, state: FSMContext):
         "Введите рекомендации по подаче.\n\n"
         "⚠️ НЕ пишите заголовок '🍽 Подача', он добавится автоматически."
     )
-    await message.answer(template, protect_content=True)
+    await message.answer(template, protect_content=False)
 
 @router.message(AdminStates.waiting_for_serving)
 async def process_serving(message: types.Message, state: FSMContext):
@@ -137,7 +136,7 @@ async def process_serving(message: types.Message, state: FSMContext):
         "Введите возможные замены (например: ингредиент → замена).\n\n"
         "⚠️ НЕ пишите заголовок '🔄 Замены', он добавится автоматически."
     )
-    await message.answer(template, protect_content=True)
+    await message.answer(template, protect_content=False)
 
 @router.message(AdminStates.waiting_for_substitutions)
 async def process_substitutions(message: types.Message, state: FSMContext):
@@ -151,14 +150,14 @@ async def process_substitutions(message: types.Message, state: FSMContext):
     
     builder.row(InlineKeyboardButton(text="➕ Добавить новую категорию", callback_data="admin_add_new_cat_flow"))
     builder.adjust(2)
-    await message.answer("Выберите категорию:", reply_markup=builder.as_markup(), protect_content=True)
+    await message.answer("Выберите категорию:", reply_markup=builder.as_markup(), protect_content=False)
 
 @router.callback_query(F.data == "admin_add_new_cat_flow")
 async def admin_add_new_cat_flow(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_new_category_name)
     # We'll use a flag in state to know where to return
     await state.update_data(return_to_add_recipe=True)
-    await callback.message.answer("Введите название новой категории:", protect_content=True)
+    await callback.message.answer("Введите название новой категории:", protect_content=False)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("admin_cat_"))
@@ -179,7 +178,7 @@ async def process_time_category(callback: types.CallbackQuery, state: FSMContext
     time_cat = callback.data.replace("admin_time_", "")
     await state.update_data(time_category=time_cat)
     await state.set_state(AdminStates.waiting_for_cook_time)
-    await callback.message.answer("⏱ Время:\nВведите время приготовления цифрой (в минутах):", protect_content=True)
+    await callback.message.answer("⏱ Время:\nВведите время приготовления цифрой (в минутах):", protect_content=False)
     await callback.answer()
 
 @router.message(AdminStates.waiting_for_cook_time)
@@ -193,9 +192,9 @@ async def process_cook_time(message: types.Message, state: FSMContext):
             "для детей, десерт, завтрак, перекус, для всей семьи, без глютена, без молока.\n\n"
             "⚠️ НЕ пишите заголовок '📌 Подходит', он добавится автоматически."
         )
-        await message.answer(template, protect_content=True)
+        await message.answer(template, protect_content=False)
     except ValueError:
-        await message.answer("Пожалуйста, введите число.", protect_content=True)
+        await message.answer("Пожалуйста, введите число.", protect_content=False)
 
 @router.message(AdminStates.waiting_for_suitable)
 async def process_suitable(message: types.Message, state: FSMContext):
@@ -205,7 +204,7 @@ async def process_suitable(message: types.Message, state: FSMContext):
     suitable = [s for s in suitable if s and s != "…"]
     await state.update_data(tags=suitable)
     await state.set_state(AdminStates.waiting_for_photo)
-    await message.answer("Отправьте фото блюда или '-' если фото нет:", protect_content=True)
+    await message.answer("Отправьте фото блюда или '-' если фото нет:", protect_content=False)
 
 @router.message(AdminStates.waiting_for_photo)
 async def process_photo(message: types.Message, state: FSMContext):
@@ -215,7 +214,7 @@ async def process_photo(message: types.Message, state: FSMContext):
     elif message.text == "-":
         photo_id = None
     else:
-        await message.answer("Пожалуйста, отправьте фото или '-'", protect_content=True)
+        await message.answer("Пожалуйста, отправьте фото или '-'", protect_content=False)
         return
 
     await state.update_data(photo_id=photo_id)
@@ -237,7 +236,7 @@ async def process_photo(message: types.Message, state: FSMContext):
     data['meal_type'] = meal_map.get(data.get('category'), 'Обед')
     
     await db.add_recipe(data, bot=message.bot)
-    await message.answer("✅ Рецепт успешно добавлен и разослан пользователям!", reply_markup=get_admin_main(), protect_content=True)
+    await message.answer("✅ Рецепт успешно добавлен и разослан пользователям!", reply_markup=get_admin_main(), protect_content=False)
     await state.clear()
 
 @router.callback_query(F.data == "admin_delete_list")
@@ -467,7 +466,7 @@ async def admin_edit_pdf_start(callback: types.CallbackQuery, state: FSMContext)
     current_val = await db.get_setting("pdf_text")
     await state.update_data(edit_setting_key="pdf_text")
     await state.set_state(AdminStates.waiting_for_setting_value)
-    await callback.message.answer(f"Текущий текст PDF:\n\n{current_val}\n\nВведите новый текст (поддерживается HTML):", protect_content=True)
+    await callback.message.answer(f"Текущий текст PDF:\n\n{current_val}\n\nВведите новый текст (поддерживается HTML):", protect_content=False)
     await callback.answer()
 
 @router.callback_query(F.data == "admin_edit_about")
@@ -476,7 +475,7 @@ async def admin_edit_about_start(callback: types.CallbackQuery, state: FSMContex
     current_val = await db.get_setting("about_text")
     await state.update_data(edit_setting_key="about_text")
     await state.set_state(AdminStates.waiting_for_setting_value)
-    await callback.message.answer(f"Текущий текст 'О проекте':\n\n{current_val}\n\nВведите новый текст (поддерживается HTML):", protect_content=True)
+    await callback.message.answer(f"Текущий текст 'О проекте':\n\n{current_val}\n\nВведите новый текст (поддерживается HTML):", protect_content=False)
     await callback.answer()
 
 @router.message(AdminStates.waiting_for_setting_value)
@@ -484,7 +483,7 @@ async def process_setting_update(message: types.Message, state: FSMContext):
     data = await state.get_data()
     key = data['edit_setting_key']
     await db.update_setting(key, message.text)
-    await message.answer(f"✅ Настройка '{key}' успешно обновлена!", reply_markup=get_admin_main(), protect_content=True)
+    await message.answer(f"✅ Настройка '{key}' успешно обновлена!", reply_markup=get_admin_main(), protect_content=False)
     await state.clear()
 
 @router.callback_query(F.data == "admin_edit_constructors")
@@ -552,7 +551,7 @@ async def admin_edit_field_start(callback: types.CallbackQuery, state: FSMContex
     
     if field == "photo":
         await state.set_state(EditStates.waiting_for_photo)
-        await callback.message.answer("Отправьте новое фото или '-' чтобы удалить фото:", protect_content=True)
+        await callback.message.answer("Отправьте новое фото или '-' чтобы удалить фото:", protect_content=False)
     elif field == "category":
         builder = InlineKeyboardBuilder()
         for cat in CATEGORIES:
@@ -565,7 +564,7 @@ async def admin_edit_field_start(callback: types.CallbackQuery, state: FSMContex
         msg = f"Введите новое значение для поля '{field}':"
         if template:
             msg = f"Введите значение по шаблону:\n\n{template}"
-        await callback.message.answer(msg, protect_content=True)
+        await callback.message.answer(msg, protect_content=False)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("edit_cat_val_"))
@@ -591,7 +590,7 @@ async def process_edit_category_value(callback: types.CallbackQuery, state: FSMC
     recipe_data['meal_type'] = meal_map.get(new_cat, recipe_data.get('meal_type', ''))
     
     await state.update_data(edit_recipe_data=recipe_data)
-    await callback.message.answer(f"Категория изменена на '{new_cat}'. Не забудьте нажать 'Сохранить'.", protect_content=True)
+    await callback.message.answer(f"Категория изменена на '{new_cat}'. Не забудьте нажать 'Сохранить'.", protect_content=False)
     
     # Возвращаемся в меню редактирования
     builder = InlineKeyboardBuilder()
@@ -608,7 +607,7 @@ async def process_edit_category_value(callback: types.CallbackQuery, state: FSMC
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_edit_select"))
     builder.adjust(2)
     
-    await callback.message.answer(f"Редактирование: {recipe_data['title']}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=True)
+    await callback.message.answer(f"Редактирование: {recipe_data['title']}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=False)
     await callback.answer()
 
 @router.message(EditStates.waiting_for_new_value)
@@ -620,7 +619,7 @@ async def process_edit_value(message: types.Message, state: FSMContext):
     recipe_data[field] = message.text
     await state.update_data(edit_recipe_data=recipe_data)
     
-    await message.answer(f"Поле '{field}' обновлено в памяти. Не забудьте нажать 'Сохранить'.", protect_content=True)
+    await message.answer(f"Поле '{field}' обновлено в памяти. Не забудьте нажать 'Сохранить'.", protect_content=False)
     # Возвращаемся в меню редактирования
     recipe_id = data['edit_recipe_id']
     
@@ -637,7 +636,7 @@ async def process_edit_value(message: types.Message, state: FSMContext):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_edit_select"))
     builder.adjust(2)
     
-    await message.answer(f"Редактирование: {recipe_data['title']}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=True)
+    await message.answer(f"Редактирование: {recipe_data['title']}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=False)
     await state.set_state(None)
 
 @router.message(EditStates.waiting_for_photo)
@@ -653,7 +652,7 @@ async def process_edit_photo(message: types.Message, state: FSMContext):
     elif message.text == "-":
         item_data['photo_id'] = None
     else:
-        await message.answer("Пожалуйста, отправьте фото или '-'", protect_content=True)
+        await message.answer("Пожалуйста, отправьте фото или '-'", protect_content=False)
         return
         
     if is_const:
@@ -661,7 +660,7 @@ async def process_edit_photo(message: types.Message, state: FSMContext):
     else:
         await state.update_data(edit_recipe_data=item_data)
         
-    await message.answer("Фото обновлено в памяти. Не забудьте нажать 'Сохранить'.", protect_content=True)
+    await message.answer("Фото обновлено в памяти. Не забудьте нажать 'Сохранить'.", protect_content=False)
     
     # Возвращаемся в соответствующее меню редактирования
     builder = InlineKeyboardBuilder()
@@ -702,7 +701,7 @@ async def process_edit_photo(message: types.Message, state: FSMContext):
     
     builder.adjust(2)
     title = item_data.get('title', 'Без названия')
-    await message.answer(f"Редактирование: {title}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=True)
+    await message.answer(f"Редактирование: {title}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=False)
     await state.set_state(None)
 
 @router.callback_query(F.data == "edit_save")
@@ -800,13 +799,13 @@ async def admin_edit_const_field_start(callback: types.CallbackQuery, state: FSM
     
     if field == "photo":
         await state.set_state(EditStates.waiting_for_photo) # Reuse photo state
-        await callback.message.answer("Отправьте новое фото для конструктора или '-' чтобы удалить фото:", protect_content=True)
+        await callback.message.answer("Отправьте новое фото для конструктора или '-' чтобы удалить фото:", protect_content=False)
     else:
         await state.set_state(EditStates.waiting_for_const_new_value)
         msg = f"Введите новое значение для поля '{field}':"
         if template:
             msg = f"Введите значение по шаблону:\n\n{template}"
-        await callback.message.answer(msg, protect_content=True)
+        await callback.message.answer(msg, protect_content=False)
     await callback.answer()
 
 @router.message(EditStates.waiting_for_const_new_value)
@@ -818,7 +817,7 @@ async def process_edit_const_value(message: types.Message, state: FSMContext):
     const_data[field] = message.text
     await state.update_data(edit_const_data=const_data)
     
-    await message.answer(f"Поле '{field}' обновлено в памяти. Не забудьте нажать 'Сохранить'.", protect_content=True)
+    await message.answer(f"Поле '{field}' обновлено в памяти. Не забудьте нажать 'Сохранить'.", protect_content=False)
     
     # Возвращаемся в меню редактирования конструктора
     is_tip = const_data.get('basis') is None and const_data.get('principle') is None
@@ -847,7 +846,7 @@ async def process_edit_const_value(message: types.Message, state: FSMContext):
     builder.adjust(2)
     
     item_type = "совета" if is_tip else "конструктора"
-    await message.answer(f"Редактирование {item_type}: {const_data['title']}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=True)
+    await message.answer(f"Редактирование {item_type}: {const_data['title']}\nВыберите поле:", reply_markup=builder.as_markup(), protect_content=False)
     await state.set_state(None)
 
 @router.callback_query(F.data == "econst_save")
@@ -877,7 +876,7 @@ async def admin_categories_menu(callback: types.CallbackQuery):
 async def admin_cat_add_start(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await state.set_state(AdminStates.waiting_for_new_category_name)
-    await callback.message.answer("Введите название новой категории:", protect_content=True)
+    await callback.message.answer("Введите название новой категории:", protect_content=False)
     await callback.answer()
 
 @router.message(AdminStates.waiting_for_new_category_name)
@@ -901,7 +900,7 @@ async def process_new_category(message: types.Message, state: FSMContext):
             with open("bot/keyboards/inline.py", "w", encoding="utf-8") as f:
                 f.write(new_content)
                 
-            await message.answer(f"✅ Категория '{new_cat}' успешно добавлена!", protect_content=True)
+            await message.answer(f"✅ Категория '{new_cat}' успешно добавлена!", protect_content=False)
             
             if return_to_add:
                 # Возвращаемся к выбору категории в процессе добавления рецепта
@@ -912,16 +911,16 @@ async def process_new_category(message: types.Message, state: FSMContext):
                         builder.row(InlineKeyboardButton(text=cat, callback_data=f"admin_cat_{cat}"))
                 builder.row(InlineKeyboardButton(text="➕ Добавить новую категорию", callback_data="admin_add_new_cat_flow"))
                 builder.adjust(2)
-                await message.answer("Теперь выберите категорию для рецепта:", reply_markup=builder.as_markup(), protect_content=True)
+                await message.answer("Теперь выберите категорию для рецепта:", reply_markup=builder.as_markup(), protect_content=False)
             else:
-                await message.answer("🛠 Панель администратора", reply_markup=get_admin_main(), protect_content=True)
+                await message.answer("🛠 Панель администратора", reply_markup=get_admin_main(), protect_content=False)
                 await state.clear()
         except Exception as e:
-            await message.answer(f"❌ Ошибка при сохранении категории: {e}", protect_content=True)
+            await message.answer(f"❌ Ошибка при сохранении категории: {e}", protect_content=False)
             if not return_to_add:
                 await state.clear()
     else:
-        await message.answer("Такая категория уже существует или название пустое.", protect_content=True)
+        await message.answer("Такая категория уже существует или название пустое.", protect_content=False)
         if not return_to_add:
             await state.clear()
         else:
@@ -933,10 +932,68 @@ async def process_new_category(message: types.Message, state: FSMContext):
                     builder.row(InlineKeyboardButton(text=cat, callback_data=f"admin_cat_{cat}"))
             builder.row(InlineKeyboardButton(text="➕ Добавить новую категорию", callback_data="admin_add_new_cat_flow"))
             builder.adjust(2)
-            await message.answer("Выберите категорию из списка:", reply_markup=builder.as_markup(), protect_content=True)
+            await message.answer("Выберите категорию из списка:", reply_markup=builder.as_markup(), protect_content=False)
 
 @router.callback_query(F.data == "admin_panel")
 async def back_to_admin_panel(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("🛠 Панель администратора", reply_markup=get_admin_main())
     await callback.answer()
+
+@router.callback_query(F.data == "admin_access_mgmt")
+async def admin_access_mgmt(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return
+    
+    secret = await db.get_setting("join_secret", "lite_kitchen_2026")
+    bot_info = await callback.message.bot.get_me()
+    invite_link = f"https://t.me/{bot_info.username}?start={secret}"
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔄 Изменить секретный код", callback_data="admin_change_secret"))
+    builder.row(InlineKeyboardButton(text="👤 Дать доступ по ID", callback_data="admin_grant_by_id"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_panel"))
+    builder.adjust(1)
+    
+    text = (
+        "🔑 <b>Управление доступом</b>\n\n"
+        f"Текущий секретный код: <code>{secret}</code>\n\n"
+        f"<b>Ссылка для приглашения:</b>\n{invite_link}\n\n"
+        "<i>Отправьте эту ссылку пользователю, чтобы он получил доступ к боту.</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_change_secret")
+async def admin_change_secret_start(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return
+    await state.set_state(AdminStates.waiting_for_access_secret)
+    await callback.message.answer("Введите новый секретный код (только латиница, цифры и подчеркивание):", protect_content=False)
+    await callback.answer()
+
+@router.message(AdminStates.waiting_for_access_secret)
+async def process_new_secret(message: types.Message, state: FSMContext):
+    new_secret = message.text.strip()
+    if not re.match(r'^[a-zA-Z0-9_]+$', new_secret):
+        await message.answer("❌ Недопустимый формат. Используйте только буквы, цифры и подчеркивание.", protect_content=False)
+        return
+        
+    await db.update_setting("join_secret", new_secret)
+    await message.answer(f"✅ Секретный код изменен на: <code>{new_secret}</code>", parse_mode="HTML", reply_markup=get_admin_main(), protect_content=False)
+    await state.clear()
+
+@router.callback_query(F.data == "admin_grant_by_id")
+async def admin_grant_by_id_start(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return
+    await state.set_state(AdminStates.waiting_for_manual_uid)
+    await callback.message.answer("Введите Telegram ID пользователя, которому нужно дать доступ:", protect_content=False)
+    await callback.answer()
+
+@router.message(AdminStates.waiting_for_manual_uid)
+async def process_manual_grant(message: types.Message, state: FSMContext):
+    try:
+        uid = int(message.text.strip())
+        await db.add_user(uid, has_access=True)
+        await message.answer(f"✅ Доступ для пользователя <code>{uid}</code> успешно предоставлен!", parse_mode="HTML", reply_markup=get_admin_main(), protect_content=False)
+        await state.clear()
+    except ValueError:
+        await message.answer("❌ Пожалуйста, введите корректный числовой ID.", protect_content=False)

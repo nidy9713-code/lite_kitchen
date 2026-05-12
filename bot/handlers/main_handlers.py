@@ -11,6 +11,7 @@ from bot.keyboards.inline import (
     get_cooking_tips_keyboard, get_seasonal_smoothies_keyboard
 )
 from bot.database.db import db
+from config import is_admin
 import json
 import re
 
@@ -269,8 +270,33 @@ def format_constructor(c):
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user = await db.get_user(message.from_user.id)
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
     
+    # Check for invite code in /start command
+    args = message.text.split()
+    invite_code = args[1] if len(args) > 1 else None
+    
+    # Get current secret from settings
+    secret = await db.get_setting("join_secret", "lite_kitchen_2026")
+    
+    if invite_code == secret:
+        if not user:
+            await db.add_user(user_id, has_access=True)
+        else:
+            await db.grant_access(user_id)
+        user = await db.get_user(user_id) # Refresh user data
+    
+    # If still no access and not admin, show access denied
+    if not is_admin(user_id) and (not user or not user.get('has_access')):
+        text = (
+            "⚠️ <b>Доступ ограничен</b>\n\n"
+            "Этот бот является закрытым. Доступ предоставляется только по специальной ссылке администратора.\n\n"
+            "Если вы приобрели доступ, пожалуйста, воспользуйтесь ссылкой, которую вам прислали."
+        )
+        await message.answer(text, parse_mode="HTML")
+        return
+
     if not user or not user['is_onboarded']:
         welcome_text = (
             "Привет!\n"
@@ -283,14 +309,14 @@ async def cmd_start(message: types.Message):
             "🌱 отдельно вынесены лайфхаки по группам продуктов (каши, омлеты, гарниры) для вашего удобства\n\n"
             "🌱 есть гайды, которые вы можете скачать и использовать их в любой удобный вам момент"
         )
-        await message.answer(welcome_text, protect_content=True)
+        await message.answer(welcome_text, protect_content=not is_admin(message.from_user.id))
         await db.add_user(message.from_user.id)
         await db.set_onboarded(message.from_user.id)
     
     await message.answer(
         "🤖 Добро пожаловать!\nПомогу быстро подобрать рецепт или воспользоваться конструктором 🙂",
         reply_markup=get_main_menu(),
-        protect_content=True
+        protect_content=not is_admin(message.from_user.id)
     )
 
 @router.callback_query(F.data == "start")
@@ -345,14 +371,15 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
     text = format_recipe(r)
     
     # Telegram caption limit is 1024 characters
+    protect = not is_admin(callback.from_user.id)
     if r.get('photo_id'):
         if len(text) <= 1024:
-            await callback.message.answer_photo(r['photo_id'], caption=text, parse_mode="HTML", protect_content=True)
+            await callback.message.answer_photo(r['photo_id'], caption=text, parse_mode="HTML", protect_content=protect)
         else:
-            await callback.message.answer_photo(r['photo_id'], protect_content=True)
-            await callback.message.answer(text, parse_mode="HTML", protect_content=True)
+            await callback.message.answer_photo(r['photo_id'], protect_content=protect)
+            await callback.message.answer(text, parse_mode="HTML", protect_content=protect)
     else:
-        await callback.message.answer(text, parse_mode="HTML", protect_content=True)
+        await callback.message.answer(text, parse_mode="HTML", protect_content=protect)
         
     data = await state.get_data()
     back_data = data.get('last_list')
@@ -362,7 +389,7 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
     if back_data == "plan_day" or data.get('plan_time'):
         show_more = "plan_day"
     
-    await callback.message.answer("Хотите еще варианты?", reply_markup=get_final_options(back_data, show_more), protect_content=True)
+    await callback.message.answer("Хотите еще варианты?", reply_markup=get_final_options(back_data, show_more), protect_content=not is_admin(callback.from_user.id))
     await callback.answer()
 
 # SEARCH
@@ -376,12 +403,13 @@ async def search_start(callback: types.CallbackQuery, state: FSMContext):
 @router.message(UserStates.waiting_for_search)
 async def process_search(message: types.Message, state: FSMContext):
     recipes = await db.search_recipes(message.text)
+    protect = not is_admin(message.from_user.id)
     if not recipes:
         await message.answer("Ничего не нашлось. Попробуйте другой запрос или вернитесь в меню.", 
-                             reply_markup=get_main_menu(), protect_content=True)
+                             reply_markup=get_main_menu(), protect_content=protect)
     else:
         await message.answer(f"Найдено {len(recipes)} рецептов:", 
-                             reply_markup=get_recipe_list_keyboard(recipes), protect_content=True)
+                             reply_markup=get_recipe_list_keyboard(recipes), protect_content=protect)
     await state.clear()
 
 # SMART FLOW
@@ -514,7 +542,7 @@ async def show_dynamic_tip(callback: types.CallbackQuery):
         if tips_list:
             content = f"👨‍🍳 <b>Советы по разделу {cat}:</b>\n\n" + "\n\n".join(tips_list)
 
-    await callback.message.answer(content, parse_mode="HTML", reply_markup=get_back_button(back_target), protect_content=True)
+    await callback.message.answer(content, parse_mode="HTML", reply_markup=get_back_button(back_target), protect_content=not is_admin(callback.from_user.id))
     await callback.answer()
 
 @router.callback_query(F.data.startswith("tip_"))
@@ -586,7 +614,7 @@ async def show_tip_content(callback: types.CallbackQuery):
         )
     }
     content = tips.get(callback.data, "Совет скоро появится!")
-    await callback.message.answer(content, parse_mode="HTML", reply_markup=get_back_button("tips"), protect_content=True)
+    await callback.message.answer(content, parse_mode="HTML", reply_markup=get_back_button("tips"), protect_content=not is_admin(callback.from_user.id))
     await callback.answer()
 
 # MEAL TYPE FLOW
@@ -711,7 +739,12 @@ async def process_seasonal_smoothie_subcat(callback: types.CallbackQuery, state:
 @router.callback_query(F.data == "about")
 async def show_about(callback: types.CallbackQuery):
     about_text = await db.get_setting("about_text")
-    await callback.message.edit_text(about_text, parse_mode="HTML", reply_markup=get_back_button("start"))
+    protect = not is_admin(callback.from_user.id)
+    await callback.message.answer(about_text, parse_mode="HTML", reply_markup=get_back_button("start"), protect_content=protect)
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.answer()
 
 # CONSTRUCTOR
@@ -733,7 +766,7 @@ async def constructor_list(callback: types.CallbackQuery):
             await callback.message.delete()
         except:
             pass
-        await callback.message.answer(text, reply_markup=reply_markup, protect_content=True)
+        await callback.message.answer(text, reply_markup=reply_markup, protect_content=not is_admin(callback.from_user.id))
     
     await callback.answer()
 
@@ -749,6 +782,7 @@ async def show_constructor(callback: types.CallbackQuery):
     reply_markup = get_back_button("constructor")
     
     # Telegram caption limit is 1024 characters
+    protect = not is_admin(callback.from_user.id)
     if c.get('photo_id'):
         if len(text) <= 1024:
             await callback.message.answer_photo(
@@ -756,7 +790,7 @@ async def show_constructor(callback: types.CallbackQuery):
                 caption=text, 
                 parse_mode="HTML", 
                 reply_markup=reply_markup, 
-                protect_content=True
+                protect_content=protect
             )
             try:
                 await callback.message.delete()
@@ -764,14 +798,18 @@ async def show_constructor(callback: types.CallbackQuery):
                 pass
         else:
             # If text is too long for caption, send photo then text
-            await callback.message.answer_photo(c['photo_id'], protect_content=True)
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup, protect_content=True)
+            await callback.message.answer_photo(c['photo_id'], protect_content=protect)
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup, protect_content=protect)
             try:
                 await callback.message.delete()
             except:
                 pass
     else:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup, protect_content=protect)
+        try:
+            await callback.message.delete()
+        except:
+            pass
         
     await callback.answer()
 
@@ -779,7 +817,12 @@ async def show_constructor(callback: types.CallbackQuery):
 @router.callback_query(F.data == "get_pdf")
 async def show_pdf(callback: types.CallbackQuery):
     pdf_text = await db.get_setting("pdf_text")
-    await callback.message.edit_text(pdf_text, parse_mode="HTML", reply_markup=get_back_button("start"))
+    protect = not is_admin(callback.from_user.id)
+    await callback.message.answer(pdf_text, parse_mode="HTML", reply_markup=get_back_button("start"), protect_content=protect)
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.answer()
 
 # ASK QUESTION

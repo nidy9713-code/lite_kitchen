@@ -2,6 +2,8 @@ import asyncio
 import logging
 from aiogram import Bot
 
+from config import is_admin
+
 async def announce_new_recipe(bot: Bot, recipe_data: dict, db):
     """
     Рассылает уведомление о новом рецепте всем пользователям из базы данных.
@@ -20,7 +22,7 @@ async def announce_new_recipe(bot: Bot, recipe_data: dict, db):
     count = 0
     for uid in user_ids:
         try:
-            await bot.send_message(uid, text, parse_mode="HTML", protect_content=True)
+            await bot.send_message(uid, text, parse_mode="HTML", protect_content=not is_admin(uid))
             count += 1
             # Задержка для обхода ограничений Telegram (около 30 сообщений в секунду)
             await asyncio.sleep(0.05)

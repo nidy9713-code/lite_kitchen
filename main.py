@@ -9,6 +9,7 @@ from aiogram.client.default import DefaultBotProperties
 from bot.handlers import main_handlers
 from bot.admin import handlers as admin_handlers
 from bot.database.db import db
+from bot.utils.access_middleware import AccessMiddleware
 from config import TOKEN
 
 # Вставьте ваш токен здесь
@@ -58,6 +59,10 @@ async def main() -> None:
     )
     
     dp = Dispatcher()
+
+    # Регистрация мидлварей
+    dp.message.middleware(AccessMiddleware())
+    dp.callback_query.middleware(AccessMiddleware())
 
     # Регистрация роутеров
     dp.include_router(admin_handlers.router)
