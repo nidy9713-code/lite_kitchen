@@ -5,11 +5,13 @@ import sys
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot.handlers import main_handlers
 from bot.admin import handlers as admin_handlers
 from bot.database.db import db
 from bot.utils.access_middleware import AccessMiddleware
+from bot.utils.mailing import check_and_send_delayed_notifications
 from config import TOKEN
 
 # Вставьте ваш токен здесь
@@ -82,6 +84,11 @@ async def main() -> None:
 
     # Вызов инициализации данных
     await on_startup()
+
+    # Настройка планировщика для отложенных уведомлений (09:00 по МСК = 06:00 по UTC)
+    scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(check_and_send_delayed_notifications, "cron", hour=9, minute=0, args=[bot, db])
+    scheduler.start()
 
     # Удаление вебхука перед запуском
     await bot.delete_webhook(drop_pending_updates=True)

@@ -207,4 +207,20 @@ class Database:
         response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).limit(1).execute()
         return response.data[0] if response.data else None
 
+    # PENDING NOTIFICATIONS
+    async def add_pending_notification(self, title: str, category: str):
+        self.supabase.table("pending_notifications").insert({
+            'title': title,
+            'category': category
+        }).execute()
+
+    async def get_pending_notifications(self) -> List[Dict[str, Any]]:
+        response = self.supabase.table("pending_notifications").select("*").execute()
+        return response.data
+
+    async def clear_pending_notifications(self):
+        # Delete all records from pending_notifications
+        # In Supabase/Postgrest we can use .neq("id", 0) to match all
+        self.supabase.table("pending_notifications").delete().neq("id", 0).execute()
+
 db = Database()
