@@ -310,7 +310,9 @@ async def cmd_start(message: types.Message):
             "🌱 есть гайды, которые вы можете скачать и использовать их в любой удобный вам момент"
         )
         await message.answer(welcome_text, protect_content=not is_admin(message.from_user.id))
-        await db.add_user(message.from_user.id)
+        if not user:
+            # Only add if doesn't exist, to avoid overwriting has_access
+            await db.add_user(message.from_user.id)
         await db.set_onboarded(message.from_user.id)
     
     await message.answer(

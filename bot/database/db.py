@@ -129,9 +129,16 @@ class Database:
 
     async def add_user(self, user_id: int, has_access: bool = False):
         self.supabase.table("users").upsert({'user_id': user_id, 'has_access': has_access}).execute()
+        # Update cache
+        from bot.utils.access_middleware import access_cache
+        access_cache[user_id] = has_access
 
     async def grant_access(self, user_id: int):
         self.supabase.table("users").update({'has_access': True}).eq("user_id", user_id).execute()
+        # Clear cache if exists
+        from bot.utils.access_middleware import access_cache
+        if user_id in access_cache:
+            access_cache[user_id] = True
 
     async def set_onboarded(self, user_id: int):
         self.supabase.table("users").update({'is_onboarded': 1}).eq("user_id", user_id).execute()

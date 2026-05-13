@@ -68,6 +68,18 @@ async def main() -> None:
     dp.include_router(admin_handlers.router)
     dp.include_router(main_handlers.router)
 
+    # Глобальный обработчик ошибок
+    @dp.errors()
+    async def error_handler(event: types.ErrorEvent):
+        logging.error(f"Критическая ошибка: {event.exception}", exc_info=True)
+        try:
+            if event.update.callback_query:
+                await event.update.callback_query.answer("Произошла ошибка. Попробуйте позже.", show_alert=True)
+            elif event.update.message:
+                await event.update.message.answer("Произошла ошибка. Попробуйте позже.")
+        except:
+            pass
+
     # Вызов инициализации данных
     await on_startup()
 
