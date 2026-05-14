@@ -44,11 +44,29 @@ class Database:
         response = self.supabase.table("recipes").select("*").eq("id", recipe_id).execute()
         return response.data[0] if response.data else None
 
+    def _search_ilike_patterns(self, safe: str) -> List[str]:
+        """Шаблоны ILIKE: точная подстрока + морфология для частых запросов (курица / курочка / куриный…)."""
+        patterns: List[str] = [f"%{safe}%"]
+        n = safe.replace("ё", "е").lower()
+        if "куриц" in n or n in ("курочка", "курочки", "курочку", "курочке", "курочкой"):
+            for extra in (
+                "%куроч%",
+                "%курин%",
+                "%курят%",
+                "%цыплён%",
+                "%цыплен%",
+                "%цыпля%",
+            ):
+                if extra not in patterns:
+                    patterns.append(extra)
+        return patterns
+
     async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
         """
         Поиск по подстроке (без учёта регистра): название, ингредиенты, теги, описание, замены.
         Несколько запросов .ilike() вместо одного .or_() — так надёжнее с кириллицей и % в PostgREST.
-        Порядок выдачи: сначала все совпадения по названию, затем по ингредиентам, далее по остальным полям.
+        Ранжирование: важнее совпадение в названии, затем в ингредиентах; «О рецепте» и замены — ниже,
+        чтобы лишние упоминания в тексте не поднимали нерелевантные блюда выше.
         """
         raw = (query or "").strip()
         if not raw:
@@ -57,7 +75,7 @@ class Database:
         safe = raw.replace("%", "").replace("_", "").strip()
         if not safe:
             return []
-        pattern = f"%{safe}%"
+        patterns = self._search_ilike_patterns(safe)
 
         columns_priority = (
             "title",
@@ -66,21 +84,27 @@ class Database:
             "about",
             "substitutions",
         )
+        col_rank = {c: i for i, c in enumerate(columns_priority)}
 
-        merged: Dict[Any, Dict[str, Any]] = {}
-        order: List[Any] = []
+        # id -> (sort_key, row); sort_key = (column_tier, pattern_tier) — меньше = релевантнее
+        best: Dict[Any, tuple] = {}
 
-        for col in columns_priority:
-            response = self.supabase.table("recipes").select("*").ilike(col, pattern).execute()
-            for row in response.data or []:
-                rid = row.get("id")
-                if rid is None:
-                    continue
-                if rid not in merged:
-                    merged[rid] = row
-                    order.append(rid)
+        for pattern_tier, pattern in enumerate(patterns):
+            for col in columns_priority:
+                response = self.supabase.table("recipes").select("*").ilike(col, pattern).execute()
+                for row in response.data or []:
+                    rid = row.get("id")
+                    if rid is None:
+                        continue
+                    key = (col_rank[col], pattern_tier)
+                    prev = best.get(rid)
+                    if prev is None or key < prev[0]:
+                        best[rid] = (key, row)
 
-        return [merged[rid] for rid in order]
+        # стабильный порядок при равном ключе: по названию
+        items = list(best.values())
+        items.sort(key=lambda x: (x[0], (x[1].get("title") or "").lower()))
+        return [row for _, row in items]
 
     async def filter_recipes(self, time_category: str, tag: str) -> List[Dict[str, Any]]:
         tag_map = {
