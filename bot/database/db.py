@@ -27,11 +27,10 @@ class Database:
         
         response = self.supabase.table("recipes").insert(recipe_data).execute()
         recipe_id = response.data[0]['id']
-        
-        if bot:
-            from bot.utils.mailing import announce_new_recipe
-            await announce_new_recipe(bot, data, self)
-            
+
+        from bot.utils.mailing import schedule_recipe_notification
+        await schedule_recipe_notification(bot, data, self)
+
         return recipe_id
 
     async def get_recipes_by_category(self, category: str) -> List[Dict[str, Any]]:
@@ -222,5 +221,8 @@ class Database:
         # Delete all records from pending_notifications
         # In Supabase/Postgrest we can use .neq("id", 0) to match all
         self.supabase.table("pending_notifications").delete().neq("id", 0).execute()
+
+    async def delete_pending_notification(self, notification_id: int):
+        self.supabase.table("pending_notifications").delete().eq("id", notification_id).execute()
 
 db = Database()

@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
@@ -85,10 +87,24 @@ async def main() -> None:
     # Вызов инициализации данных
     await on_startup()
 
-    # Настройка планировщика для отложенных уведомлений (09:00 по МСК = 06:00 по UTC)
+    # Планировщик: 09:00 МСК; misfire — если процесс был недоступен в момент запуска, догон в течение 3 ч
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-    scheduler.add_job(check_and_send_delayed_notifications, "cron", hour=9, minute=0, args=[bot, db])
+    scheduler.add_job(
+        check_and_send_delayed_notifications,
+        "cron",
+        hour=9,
+        minute=0,
+        args=[bot, db],
+        misfire_grace_time=10800,
+        coalesce=True,
+        max_instances=1,
+    )
     scheduler.start()
+
+    # Догон: после ночной очереди, если бот поднялся между 09:00 и 19:00 МСК — сразу отправить накопившееся
+    msk_hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
+    if 9 <= msk_hour < 19:
+        await check_and_send_delayed_notifications(bot, db)
 
     # Удаление вебхука перед запуском
     await bot.delete_webhook(drop_pending_updates=True)
