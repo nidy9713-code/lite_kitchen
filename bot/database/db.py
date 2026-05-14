@@ -1,8 +1,17 @@
 import json
+import re
 from typing import List, Dict, Any, Optional
+
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY
 
+# Типичные окончания (длинные → короткие): по одному снятию за шаг для «корня» слова в поиске.
+_RU_SEARCH_SUFFIXES: tuple = (
+    "ьными", "ными", "ями", "ами", "его", "ого", "ему", "ому", "ыми", "ими",
+    "ах", "ях", "ам", "ям", "ов", "ев", "ей", "ой", "ый", "ий",
+    "ая", "яя", "ое", "ее", "ую", "юю", "ые", "ие", "ом", "ем",
+    "а", "я", "о", "е", "ы", "и", "у", "ю", "ь", "й",
+)
 class Database:
     def __init__(self):
         self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -44,9 +53,62 @@ class Database:
         response = self.supabase.table("recipes").select("*").eq("id", recipe_id).execute()
         return response.data[0] if response.data else None
 
+    def _token_variants(self, token: str) -> List[str]:
+        """Варианты одного слова: исходное + несколько шагов снятия русских окончаний (корень для ILIKE)."""
+        t = token.replace("ё", "е").lower().strip()
+        if len(t) < 2:
+            return []
+        out: List[str] = []
+        seen: set = set()
+        cur = t
+        for _ in range(6):
+            if cur in seen:
+                break
+            if len(cur) >= 2:
+                seen.add(cur)
+                out.append(cur)
+            if len(cur) <= 3:
+                break
+            nxt: Optional[str] = None
+            for suf in _RU_SEARCH_SUFFIXES:
+                if cur.endswith(suf):
+                    cand = cur[: -len(suf)]
+                    if len(cand) >= 3:
+                        nxt = cand
+                    break
+            if nxt is None:
+                break
+            cur = nxt
+        return out
+
     def _search_ilike_patterns(self, safe: str) -> List[str]:
-        """Шаблоны ILIKE: точная подстрока + морфология для частых запросов (курица / курочка / куриный…)."""
-        patterns: List[str] = [f"%{safe}%"]
+        """
+        Шаблоны ILIKE: целая фраза, затем по каждому слову — полная форма и морфологические корни
+        (для любых ингредиентов и названий). Плюс расширения для «курица / курочка / куриный…».
+        Порядок списка = приоритет (pattern_tier): раньше — релевантнее.
+        """
+        patterns: List[str] = []
+        seen: set = set()
+
+        def add_pat(p: str) -> None:
+            if p not in seen:
+                seen.add(p)
+                patterns.append(p)
+
+        add_pat(f"%{safe}%")
+
+        # слова из запроса: кириллица/латиница/цифры/дефис, минимум 2 символа
+        tokens = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9\-]{2,}", safe)
+        for tok in tokens:
+            variants = self._token_variants(tok)
+            for i, v in enumerate(variants):
+                if i == 0:
+                    if len(v) >= 2:
+                        add_pat(f"%{v}%")
+                else:
+                    if len(v) >= 4:
+                        add_pat(f"%{v}%")
+
         n = safe.replace("ё", "е").lower()
         if "куриц" in n or n in ("курочка", "курочки", "курочку", "курочке", "курочкой"):
             for extra in (
@@ -57,14 +119,21 @@ class Database:
                 "%цыплен%",
                 "%цыпля%",
             ):
-                if extra not in patterns:
-                    patterns.append(extra)
+                add_pat(extra)
+
+        # ограничение числа запросов к Supabase (паттерн × колонка)
+        max_patterns = 36
+        if len(patterns) > max_patterns:
+            patterns = patterns[:max_patterns]
+
         return patterns
 
     async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
         """
         Поиск по подстроке (без учёта регистра): название, ингредиенты, теги, описание, замены.
         Несколько запросов .ilike() вместо одного .or_() — так надёжнее с кириллицей и % в PostgREST.
+        Для каждого слова запроса добавляются варианты с типичными русскими окончаниями (свинина → свинин…),
+        плюс отдельные шаблоны для «курица / курочка / куриный…».
         Ранжирование: важнее совпадение в названии, затем в ингредиентах; «О рецепте» и замены — ниже,
         чтобы лишние упоминания в тексте не поднимали нерелевантные блюда выше.
         """
