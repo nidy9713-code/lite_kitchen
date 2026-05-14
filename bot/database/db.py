@@ -45,14 +45,42 @@ class Database:
         return response.data[0] if response.data else None
 
     async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
-        # Supabase doesn't support complex OR in a single ilike easily without RPC or complex filters
-        # We'll use a simpler approach or multiple queries if needed
-        # For now, let's search in title, ingredients, and tags
-        q = f"%{query}%"
-        response = self.supabase.table("recipes").select("*").or_(
-            f"title.ilike.{q},ingredients.ilike.{q},tags.ilike.{q}"
-        ).execute()
-        return response.data
+        """
+        Поиск по подстроке (без учёта регистра): название, ингредиенты, теги, описание, замены.
+        Несколько запросов .ilike() вместо одного .or_() — так надёжнее с кириллицей и % в PostgREST.
+        Порядок выдачи: сначала все совпадения по названию, затем по ингредиентам, далее по остальным полям.
+        """
+        raw = (query or "").strip()
+        if not raw:
+            return []
+        # убираем символы шаблона ILIKE из ввода пользователя
+        safe = raw.replace("%", "").replace("_", "").strip()
+        if not safe:
+            return []
+        pattern = f"%{safe}%"
+
+        columns_priority = (
+            "title",
+            "ingredients",
+            "tags",
+            "about",
+            "substitutions",
+        )
+
+        merged: Dict[Any, Dict[str, Any]] = {}
+        order: List[Any] = []
+
+        for col in columns_priority:
+            response = self.supabase.table("recipes").select("*").ilike(col, pattern).execute()
+            for row in response.data or []:
+                rid = row.get("id")
+                if rid is None:
+                    continue
+                if rid not in merged:
+                    merged[rid] = row
+                    order.append(rid)
+
+        return [merged[rid] for rid in order]
 
     async def filter_recipes(self, time_category: str, tag: str) -> List[Dict[str, Any]]:
         tag_map = {
