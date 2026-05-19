@@ -24,24 +24,22 @@ async def schedule_recipe_notification(bot: Optional[Bot], recipe_data: dict, db
     """
     Уведомление о новом рецепте: с 09:00 до 19:00 МСК — сразу (если передан bot),
     иначе запись в очередь на утреннюю рассылку.
-    Добавление через скрипт без bot в дневное окно — без уведомления (массовые импорты).
+    Добавление через скрипт без bot — в очередь, чтобы уведомление не терялось.
     """
     title = recipe_data.get("title", "Новый рецепт")
     category = recipe_data.get("category", "Разное")
 
-    if _is_quiet_hours_msk():
+    if _is_quiet_hours_msk() or bot is None:
         logging.info(
-            "Откладываем уведомление для '%s' (МСК %02d:xx, тихие часы 19–09)",
+            "Откладываем уведомление для '%s' (МСК %02d:xx, bot=%s)",
             title,
             _msk_hour(),
+            "есть" if bot is not None else "нет",
         )
         await db.add_pending_notification(title, category)
         return 0
 
-    if bot is not None:
-        return await send_broadcast(bot, title, category, db)
-
-    return 0
+    return await send_broadcast(bot, title, category, db)
 
 
 async def announce_new_recipe(bot: Bot, recipe_data: dict, db):
