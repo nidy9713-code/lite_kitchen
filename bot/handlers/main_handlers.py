@@ -112,6 +112,8 @@ def format_recipe(r, bot_username: str = None):
                 continue
             if line.startswith('📌'):
                 text += f"{line}\n"
+            elif line.startswith('«') or line.startswith('"'):
+                text += f"{line}\n"
             else:
                 text += f"- {line}\n"
         text += "\n---\n\n"
@@ -233,11 +235,9 @@ def format_recipe(r, bot_username: str = None):
     return text.strip().rstrip('-').strip(), _dedupe_related(related, exclude_id=r.get('id'))
 
 async def _resolve_related_labels(related: list) -> list:
+    """Подписи кнопок — всегда полное название рецепта из базы."""
     resolved = []
     for item in related:
-        if item.get("label"):
-            resolved.append(item)
-            continue
         recipe = await db.get_recipe_by_id(item["id"])
         if recipe:
             resolved.append({"id": item["id"], "label": recipe["title"]})

@@ -132,7 +132,7 @@ def get_related_recipes_keyboard(related):
             continue
         seen.add(rid)
         label = item.get("label") or f"Рецепт #{rid}"
-        builder.row(InlineKeyboardButton(text=f"🔗 {label}", callback_data=f"recipe_{rid}"))
+        builder.row(InlineKeyboardButton(text=f"🍽 {label}", callback_data=f"recipe_{rid}"))
     return builder.as_markup() if seen else None
 
 def get_tips_keyboard(has_hacks=False):
