@@ -9,7 +9,7 @@ from bot.keyboards.inline import (
     get_time_selection, get_tag_selection, get_tips_keyboard, get_final_options, get_back_button,
     get_meal_type_keyboard, get_subcategories_keyboard, get_constructor_list_keyboard,
     get_cooking_tips_keyboard, get_seasonal_smoothies_keyboard, get_related_recipes_keyboard,
-    get_recipe_footer_keyboard,
+
 )
 from bot.database.db import db
 from config import is_admin
@@ -76,11 +76,22 @@ def _extract_related_recipes(r) -> list:
             if isinstance(tag, str) and re.match(r"^related:(\d+)$", tag.strip(), re.IGNORECASE):
                 related.append({"id": int(tag.split(":")[1]), "label": None})
 
-    title = (r.get("title") or "").lower()
-    if "конвертик" in title and "говядин" in title:
-        related.append({"id": 5, "label": None})
-
     return _dedupe_related(related, exclude_id=r.get("id"))
+
+BEEF_RECIPE_TITLE = "Запечённая рваная говядина"
+
+async def build_related_for_recipe(r: dict) -> list:
+    """Связанные рецепты с подписями; для конвертика — кнопка на говядину."""
+    _, related = format_recipe(r)
+    resolved = await _resolve_related_labels(related)
+
+    title = (r.get("title") or "").lower()
+    already = {x["id"] for x in resolved}
+    if "конвертик" in title and "говядин" in title:
+        beef = await db.find_recipe_by_title(BEEF_RECIPE_TITLE)
+        if beef and beef["id"] != r.get("id") and beef["id"] not in already:
+            resolved.append({"id": beef["id"], "label": beef["title"]})
+    return resolved
 
 def _clean_recipe_label(label: str) -> str:
     return label.strip().strip('«»" ')
@@ -247,9 +258,12 @@ def format_recipe(r, bot_username: str = None):
     return text.strip().rstrip('-').strip(), _dedupe_related(related, exclude_id=r.get('id'))
 
 async def _resolve_related_labels(related: list) -> list:
-    """Подписи кнопок — всегда полное название рецепта из базы."""
+    """Подписи кнопок — полное название из базы или уже заданная подпись."""
     resolved = []
     for item in related:
+        if item.get("label"):
+            resolved.append({"id": item["id"], "label": item["label"]})
+            continue
         recipe = await db.get_recipe_by_id(item["id"])
         if recipe:
             resolved.append({"id": item["id"], "label": recipe["title"]})
@@ -498,8 +512,7 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("Рецепт не найден.")
         return
 
-    _, related = format_recipe(r)
-    related = await _resolve_related_labels(related)
+    related = await build_related_for_recipe(r)
     await _send_recipe(callback.message, r, callback.from_user.id, related=related)
 
     data = await state.get_data()
@@ -509,11 +522,19 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
     show_more = "dont_know"
     if back_data == "plan_day" or data.get('plan_time'):
         show_more = "plan_day"
+
+    protect = not is_admin(callback.from_user.id)
+    if related:
+        await callback.message.answer(
+            "📎 Связанный рецепт:",
+            reply_markup=get_related_recipes_keyboard(related),
+            protect_content=protect,
+        )
     
     await callback.message.answer(
         "Хотите еще варианты?",
-        reply_markup=get_recipe_footer_keyboard(related, back_data, show_more),
-        protect_content=not is_admin(callback.from_user.id),
+        reply_markup=get_final_options(back_data, show_more, related=related),
+        protect_content=protect,
     )
     await callback.answer()
 

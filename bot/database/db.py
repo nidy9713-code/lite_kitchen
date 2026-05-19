@@ -53,6 +53,16 @@ class Database:
         response = self.supabase.table("recipes").select("*").eq("id", recipe_id).execute()
         return response.data[0] if response.data else None
 
+    async def find_recipe_by_title(self, title: str) -> Optional[Dict[str, Any]]:
+        response = (
+            self.supabase.table("recipes")
+            .select("*")
+            .eq("title", title)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
     def _token_variants(self, token: str) -> List[str]:
         """Варианты одного слова: исходное + несколько шагов снятия русских окончаний (корень для ILIKE)."""
         t = token.replace("ё", "е").lower().strip()

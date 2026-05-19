@@ -16,6 +16,8 @@ from bot.utils.access_middleware import AccessMiddleware
 from bot.utils.mailing import check_and_send_delayed_notifications
 from config import TOKEN
 
+BOT_BUILD = "2026-05-19-recipe-link-v3"
+
 # Вставьте ваш токен здесь
 
 async def on_startup():
@@ -109,7 +111,7 @@ async def main() -> None:
     # Удаление вебхука перед запуском
     await bot.delete_webhook(drop_pending_updates=True)
     
-    print("Бот запущен и готов к работе!")
+    print(f"Бот запущен и готов к работе! build={BOT_BUILD}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
