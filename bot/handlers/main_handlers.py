@@ -12,6 +12,7 @@ from bot.keyboards.inline import (
 )
 from bot.database.db import db
 from config import is_admin
+import html
 import json
 import re
 
@@ -24,7 +25,44 @@ class UserStates(StatesGroup):
     waiting_for_plan_time = State()
     waiting_for_plan_tag = State()
 
-def format_recipe(r):
+def _parse_recipe_tags(tags_val):
+    """Разбирает теги рецепта, скрывая служебные (related:123)."""
+    display_tags = []
+    if not tags_val:
+        return display_tags
+
+    parsed = tags_val
+    while isinstance(parsed, str) and (parsed.startswith('[') or parsed.startswith('"')):
+        try:
+            new_val = json.loads(parsed)
+            if new_val == parsed:
+                break
+            parsed = new_val
+        except json.JSONDecodeError:
+            break
+
+    if isinstance(parsed, list):
+        raw_tags = parsed
+    elif isinstance(parsed, str):
+        raw_tags = [t.strip() for t in parsed.split('\n') if t.strip()]
+    else:
+        raw_tags = []
+
+    for tag in raw_tags:
+        if isinstance(tag, str) and tag.startswith("related:"):
+            continue
+        display_tags.append(tag)
+    return display_tags
+
+def _linkify_recipe_refs(text: str, bot_username: str) -> str:
+    """[[recipe:ID:название]] → кликабельная ссылка на рецепт в тексте."""
+    def repl(match):
+        rid, label = match.group(1), match.group(2)
+        url = f"https://t.me/{bot_username}?start=recipe_{rid}"
+        return f'<a href="{url}">{html.escape(label)}</a>'
+    return re.sub(r'\[\[recipe:(\d+):([^\]]+)\]\]', repl, text)
+
+def format_recipe(r, bot_username: str = None):
     text = f"🍽 <b>{r['title']}</b>\n\n"
     
     if r.get('cook_time'):
@@ -37,9 +75,16 @@ def format_recipe(r):
         about_text = r['about'].strip()
         # Remove header if user included it
         about_text = re.sub(r'^💛\s*О рецепте:?\s*', '', about_text, flags=re.IGNORECASE | re.MULTILINE)
+        if bot_username:
+            about_text = _linkify_recipe_refs(about_text, bot_username)
         for line in about_text.split('\n'):
-            if line.strip():
-                text += f"- {line.strip()}\n"
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('📌'):
+                text += f"{line}\n"
+            else:
+                text += f"- {line}\n"
         text += "\n---\n\n"
         
     if r.get('ingredients'):
@@ -127,26 +172,7 @@ def format_recipe(r):
             text += f"- {clean_sub}\n"
         text += "\n---\n\n"
         
-    suitable_tags = []
-    if r.get('tags'):
-        try:
-            # Handle possible multiple encodings
-            tags_val = r['tags']
-            while isinstance(tags_val, str) and (tags_val.startswith('[') or tags_val.startswith('"')):
-                try:
-                    new_val = json.loads(tags_val)
-                    if new_val == tags_val: break # Prevent infinite loop
-                    tags_val = new_val
-                except:
-                    break
-            
-            if isinstance(tags_val, list): 
-                suitable_tags = tags_val
-            elif isinstance(tags_val, str):
-                suitable_tags = [t.strip() for t in tags_val.split('\n') if t.strip()]
-        except:
-            if isinstance(r['tags'], str):
-                suitable_tags = [t.strip() for t in r['tags'].split('\n') if t.strip()]
+    suitable_tags = _parse_recipe_tags(r.get('tags'))
     
     if suitable_tags:
         text += "📌 Подходит:\n"
@@ -297,6 +323,22 @@ async def cmd_start(message: types.Message):
         await message.answer(text, parse_mode="HTML")
         return
 
+    if invite_code and invite_code.startswith("recipe_"):
+        try:
+            linked_id = int(invite_code.split("_", 1)[1])
+            linked = await db.get_recipe_by_id(linked_id)
+            if linked:
+                bot_info = await message.bot.get_me()
+                text = format_recipe(linked, bot_info.username)
+                await message.answer(
+                    text,
+                    parse_mode="HTML",
+                    protect_content=not is_admin(user_id),
+                )
+                return
+        except (ValueError, IndexError):
+            pass
+
     if not user or not user['is_onboarded']:
         welcome_text = (
             "Привет!\n"
@@ -370,7 +412,7 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("Рецепт не найден.")
         return
     
-    text = format_recipe(r)
+    text = format_recipe(r, (await callback.bot.get_me()).username)
     
     # Telegram caption limit is 1024 characters
     protect = not is_admin(callback.from_user.id)
