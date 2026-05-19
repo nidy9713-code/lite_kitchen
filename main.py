@@ -16,7 +16,7 @@ from bot.utils.access_middleware import AccessMiddleware
 from bot.utils.mailing import check_and_send_delayed_notifications
 from config import TOKEN
 
-BOT_BUILD = "2026-05-19-recipe-link-v3"
+BOT_BUILD = "2026-05-19-toast-hummus-link"
 
 # Вставьте ваш токен здесь
 

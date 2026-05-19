@@ -78,19 +78,26 @@ def _extract_related_recipes(r) -> list:
 
     return _dedupe_related(related, exclude_id=r.get("id"))
 
-BEEF_RECIPE_TITLE = "Запечённая рваная говядина"
+# (ключевые слова в названии рецепта) → название связанного рецепта в базе
+RECIPE_RELATED_RULES = (
+    (("конвертик", "говядин"), "Запечённая рваная говядина"),
+    (("тост", "хумус"), "Хумус"),
+)
 
 async def build_related_for_recipe(r: dict) -> list:
-    """Связанные рецепты с подписями; для конвертика — кнопка на говядину."""
+    """Связанные рецепты с подписями и кнопки по правилам RECIPE_RELATED_RULES."""
     _, related = format_recipe(r)
     resolved = await _resolve_related_labels(related)
 
     title = (r.get("title") or "").lower()
     already = {x["id"] for x in resolved}
-    if "конвертик" in title and "говядин" in title:
-        beef = await db.find_recipe_by_title(BEEF_RECIPE_TITLE)
-        if beef and beef["id"] != r.get("id") and beef["id"] not in already:
-            resolved.append({"id": beef["id"], "label": beef["title"]})
+    for keywords, linked_title in RECIPE_RELATED_RULES:
+        if not all(k in title for k in keywords):
+            continue
+        linked = await db.find_recipe_by_title(linked_title)
+        if linked and linked["id"] != r.get("id") and linked["id"] not in already:
+            resolved.append({"id": linked["id"], "label": linked["title"]})
+            already.add(linked["id"])
     return resolved
 
 def _clean_recipe_label(label: str) -> str:
