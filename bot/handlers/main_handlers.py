@@ -9,6 +9,7 @@ from bot.keyboards.inline import (
     get_time_selection, get_tag_selection, get_tips_keyboard, get_final_options, get_back_button,
     get_meal_type_keyboard, get_subcategories_keyboard, get_constructor_list_keyboard,
     get_cooking_tips_keyboard, get_seasonal_smoothies_keyboard, get_related_recipes_keyboard,
+    get_recipe_footer_keyboard,
 )
 from bot.database.db import db
 from config import is_admin
@@ -48,10 +49,38 @@ def _parse_recipe_tags(tags_val):
         raw_tags = []
 
     for tag in raw_tags:
-        if isinstance(tag, str) and tag.startswith("related:"):
+        if not isinstance(tag, str):
             continue
-        display_tags.append(tag)
+        clean = tag.strip()
+        if re.match(r"^related:\d+$", clean, re.IGNORECASE):
+            continue
+        display_tags.append(clean)
     return display_tags
+
+def _extract_related_recipes(r) -> list:
+    """Связанные рецепты из тегов related:N и известных пар в базе."""
+    related = []
+    raw_tags = r.get("tags")
+    if raw_tags:
+        parsed = raw_tags
+        while isinstance(parsed, str) and (parsed.startswith("[") or parsed.startswith('"')):
+            try:
+                new_val = json.loads(parsed)
+                if new_val == parsed:
+                    break
+                parsed = new_val
+            except json.JSONDecodeError:
+                break
+        tag_items = parsed if isinstance(parsed, list) else []
+        for tag in tag_items:
+            if isinstance(tag, str) and re.match(r"^related:(\d+)$", tag.strip(), re.IGNORECASE):
+                related.append({"id": int(tag.split(":")[1]), "label": None})
+
+    title = (r.get("title") or "").lower()
+    if "конвертик" in title and "говядин" in title:
+        related.append({"id": 5, "label": None})
+
+    return _dedupe_related(related, exclude_id=r.get("id"))
 
 def _clean_recipe_label(label: str) -> str:
     return label.strip().strip('«»" ')
@@ -203,25 +232,8 @@ def format_recipe(r, bot_username: str = None):
             text += f"- {clean_sub}\n"
         text += "\n---\n\n"
         
-    raw_tags = r.get('tags')
-    suitable_tags = _parse_recipe_tags(raw_tags)
-    if raw_tags:
-        parsed = raw_tags
-        while isinstance(parsed, str) and (parsed.startswith('[') or parsed.startswith('"')):
-            try:
-                new_val = json.loads(parsed)
-                if new_val == parsed:
-                    break
-                parsed = new_val
-            except json.JSONDecodeError:
-                break
-        tag_items = parsed if isinstance(parsed, list) else []
-        for tag in tag_items:
-            if isinstance(tag, str) and tag.startswith("related:"):
-                try:
-                    related.append({"id": int(tag.split(":", 1)[1]), "label": None})
-                except (ValueError, IndexError):
-                    pass
+    suitable_tags = _parse_recipe_tags(r.get('tags'))
+    related.extend(_extract_related_recipes(r))
     
     if suitable_tags:
         text += "📌 Подходит:\n"
@@ -229,7 +241,7 @@ def format_recipe(r, bot_username: str = None):
             # Remove header if it leaked into tags
             tag = re.sub(r'^📌\s*Подходит:?\s*', '', tag, flags=re.IGNORECASE)
             clean_tag = re.sub(r'^[—\-•]\s*', '', tag.strip())
-            if clean_tag:
+            if clean_tag and not re.match(r"^related:\d+$", clean_tag, re.IGNORECASE):
                 text += f"- {clean_tag}\n"
             
     return text.strip().rstrip('-').strip(), _dedupe_related(related, exclude_id=r.get('id'))
@@ -243,9 +255,10 @@ async def _resolve_related_labels(related: list) -> list:
             resolved.append({"id": item["id"], "label": recipe["title"]})
     return resolved
 
-async def _send_recipe(message: types.Message, recipe: dict, user_id: int):
-    text, related = format_recipe(recipe)
-    related = await _resolve_related_labels(related)
+async def _send_recipe(message: types.Message, recipe: dict, user_id: int, related: list = None):
+    text, parsed_related = format_recipe(recipe)
+    if related is None:
+        related = await _resolve_related_labels(parsed_related)
     markup = get_related_recipes_keyboard(related)
     protect = not is_admin(user_id)
 
@@ -485,7 +498,9 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("Рецепт не найден.")
         return
 
-    await _send_recipe(callback.message, r, callback.from_user.id)
+    _, related = format_recipe(r)
+    related = await _resolve_related_labels(related)
+    await _send_recipe(callback.message, r, callback.from_user.id, related=related)
 
     data = await state.get_data()
     back_data = data.get('last_list')
@@ -495,7 +510,11 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
     if back_data == "plan_day" or data.get('plan_time'):
         show_more = "plan_day"
     
-    await callback.message.answer("Хотите еще варианты?", reply_markup=get_final_options(back_data, show_more), protect_content=not is_admin(callback.from_user.id))
+    await callback.message.answer(
+        "Хотите еще варианты?",
+        reply_markup=get_recipe_footer_keyboard(related, back_data, show_more),
+        protect_content=not is_admin(callback.from_user.id),
+    )
     await callback.answer()
 
 # SEARCH

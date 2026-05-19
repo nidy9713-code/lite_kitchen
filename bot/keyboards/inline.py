@@ -122,18 +122,37 @@ def get_recipe_list_keyboard(recipes, back_data="start"):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data=back_data))
     return builder.as_markup()
 
-def get_related_recipes_keyboard(related):
-    """Кнопки для связанных рецептов (без /start в чате)."""
-    builder = InlineKeyboardBuilder()
+def _add_related_recipe_rows(builder: InlineKeyboardBuilder, related) -> None:
     seen = set()
-    for item in related:
+    for item in related or []:
         rid = item["id"]
         if rid in seen:
             continue
         seen.add(rid)
         label = item.get("label") or f"Рецепт #{rid}"
         builder.row(InlineKeyboardButton(text=f"🍽 {label}", callback_data=f"recipe_{rid}"))
-    return builder.as_markup() if seen else None
+
+def get_related_recipes_keyboard(related):
+    """Кнопки для связанных рецептов (без /start в чате)."""
+    builder = InlineKeyboardBuilder()
+    _add_related_recipe_rows(builder, related)
+    return builder.as_markup() if related else None
+
+def get_recipe_footer_keyboard(related, back_data=None, show_more_data="dont_know"):
+    """Кнопки под рецептом: связанный рецепт + навигация."""
+    builder = InlineKeyboardBuilder()
+    _add_related_recipe_rows(builder, related)
+    if back_data:
+        builder.row(InlineKeyboardButton(text="🔙 Назад к списку", callback_data=back_data))
+
+    show_more_text = "🔁 Показать ещё"
+    if show_more_data == "plan_day":
+        show_more_text = "🔁 Другое меню на день"
+
+    builder.row(InlineKeyboardButton(text=show_more_text, callback_data=show_more_data))
+    builder.row(InlineKeyboardButton(text="📅 Подобрать на весь день", callback_data="plan_day"))
+    builder.row(InlineKeyboardButton(text="🏠 В меню", callback_data="start"))
+    return builder.as_markup()
 
 def get_tips_keyboard(has_hacks=False):
     builder = InlineKeyboardBuilder()
