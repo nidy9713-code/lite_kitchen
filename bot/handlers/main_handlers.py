@@ -8,11 +8,10 @@ from bot.keyboards.inline import (
     get_main_menu, get_categories_main_keyboard, get_product_categories_keyboard, get_recipe_list_keyboard,
     get_time_selection, get_tag_selection, get_tips_keyboard, get_final_options, get_back_button,
     get_meal_type_keyboard, get_subcategories_keyboard, get_constructor_list_keyboard,
-    get_cooking_tips_keyboard, get_seasonal_smoothies_keyboard
+    get_cooking_tips_keyboard, get_seasonal_smoothies_keyboard, get_related_recipes_keyboard,
 )
 from bot.database.db import db
 from config import is_admin
-import html
 import json
 import re
 
@@ -54,16 +53,46 @@ def _parse_recipe_tags(tags_val):
         display_tags.append(tag)
     return display_tags
 
-def _linkify_recipe_refs(text: str, bot_username: str) -> str:
-    """[[recipe:ID:название]] → кликабельная ссылка на рецепт в тексте."""
-    def repl(match):
-        rid, label = match.group(1), match.group(2)
-        url = f"https://t.me/{bot_username}?start=recipe_{rid}"
-        return f'<a href="{url}">{html.escape(label)}</a>'
-    return re.sub(r'\[\[recipe:(\d+):([^\]]+)\]\]', repl, text)
+def _clean_recipe_label(label: str) -> str:
+    return label.strip().strip('«»" ')
+
+def _parse_recipe_refs(text: str) -> tuple[str, list]:
+    """[[recipe:ID:название]] и старые <a href=...start=recipe_ID> → текст + список связей."""
+    related = []
+
+    def add_related(rid: int, label: str):
+        related.append({"id": rid, "label": _clean_recipe_label(label)})
+
+    def repl_bracket(match):
+        add_related(int(match.group(1)), match.group(2))
+        return f"«{_clean_recipe_label(match.group(2))}»"
+
+    text = re.sub(r'\[\[recipe:(\d+):([^\]]+)\]\]', repl_bracket, text)
+
+    def repl_html(match):
+        url_match = re.search(r'start=recipe_(\d+)', match.group(1))
+        label = match.group(2)
+        if url_match:
+            add_related(int(url_match.group(1)), label)
+        return f"«{_clean_recipe_label(label)}»"
+
+    text = re.sub(r'<a href="([^"]+)">([^<]+)</a>', repl_html, text, flags=re.IGNORECASE)
+    return text, related
+
+def _dedupe_related(related: list, exclude_id: int = None) -> list:
+    seen = set()
+    result = []
+    for item in related:
+        rid = item["id"]
+        if rid == exclude_id or rid in seen:
+            continue
+        seen.add(rid)
+        result.append(item)
+    return result
 
 def format_recipe(r, bot_username: str = None):
     text = f"🍽 <b>{r['title']}</b>\n\n"
+    related = []
     
     if r.get('cook_time'):
         text += f"⏱ Время:\n- {r['cook_time']} минут\n\n"
@@ -75,8 +104,8 @@ def format_recipe(r, bot_username: str = None):
         about_text = r['about'].strip()
         # Remove header if user included it
         about_text = re.sub(r'^💛\s*О рецепте:?\s*', '', about_text, flags=re.IGNORECASE | re.MULTILINE)
-        if bot_username:
-            about_text = _linkify_recipe_refs(about_text, bot_username)
+        about_text, about_related = _parse_recipe_refs(about_text)
+        related.extend(about_related)
         for line in about_text.split('\n'):
             line = line.strip()
             if not line:
@@ -172,7 +201,25 @@ def format_recipe(r, bot_username: str = None):
             text += f"- {clean_sub}\n"
         text += "\n---\n\n"
         
-    suitable_tags = _parse_recipe_tags(r.get('tags'))
+    raw_tags = r.get('tags')
+    suitable_tags = _parse_recipe_tags(raw_tags)
+    if raw_tags:
+        parsed = raw_tags
+        while isinstance(parsed, str) and (parsed.startswith('[') or parsed.startswith('"')):
+            try:
+                new_val = json.loads(parsed)
+                if new_val == parsed:
+                    break
+                parsed = new_val
+            except json.JSONDecodeError:
+                break
+        tag_items = parsed if isinstance(parsed, list) else []
+        for tag in tag_items:
+            if isinstance(tag, str) and tag.startswith("related:"):
+                try:
+                    related.append({"id": int(tag.split(":", 1)[1]), "label": None})
+                except (ValueError, IndexError):
+                    pass
     
     if suitable_tags:
         text += "📌 Подходит:\n"
@@ -183,7 +230,39 @@ def format_recipe(r, bot_username: str = None):
             if clean_tag:
                 text += f"- {clean_tag}\n"
             
-    return text.strip().rstrip('-').strip()
+    return text.strip().rstrip('-').strip(), _dedupe_related(related, exclude_id=r.get('id'))
+
+async def _resolve_related_labels(related: list) -> list:
+    resolved = []
+    for item in related:
+        if item.get("label"):
+            resolved.append(item)
+            continue
+        recipe = await db.get_recipe_by_id(item["id"])
+        if recipe:
+            resolved.append({"id": item["id"], "label": recipe["title"]})
+    return resolved
+
+async def _send_recipe(message: types.Message, recipe: dict, user_id: int):
+    text, related = format_recipe(recipe)
+    related = await _resolve_related_labels(related)
+    markup = get_related_recipes_keyboard(related)
+    protect = not is_admin(user_id)
+
+    if recipe.get('photo_id'):
+        if len(text) <= 1024:
+            await message.answer_photo(
+                recipe['photo_id'],
+                caption=text,
+                parse_mode="HTML",
+                protect_content=protect,
+                reply_markup=markup,
+            )
+        else:
+            await message.answer_photo(recipe['photo_id'], protect_content=protect)
+            await message.answer(text, parse_mode="HTML", protect_content=protect, reply_markup=markup)
+    else:
+        await message.answer(text, parse_mode="HTML", protect_content=protect, reply_markup=markup)
 
 def format_constructor(c):
     title = c['title'].strip().rstrip(':')
@@ -328,13 +407,7 @@ async def cmd_start(message: types.Message):
             linked_id = int(invite_code.split("_", 1)[1])
             linked = await db.get_recipe_by_id(linked_id)
             if linked:
-                bot_info = await message.bot.get_me()
-                text = format_recipe(linked, bot_info.username)
-                await message.answer(
-                    text,
-                    parse_mode="HTML",
-                    protect_content=not is_admin(user_id),
-                )
+                await _send_recipe(message, linked, user_id)
                 return
         except (ValueError, IndexError):
             pass
@@ -411,20 +484,9 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
     if not r:
         await callback.answer("Рецепт не найден.")
         return
-    
-    text = format_recipe(r, (await callback.bot.get_me()).username)
-    
-    # Telegram caption limit is 1024 characters
-    protect = not is_admin(callback.from_user.id)
-    if r.get('photo_id'):
-        if len(text) <= 1024:
-            await callback.message.answer_photo(r['photo_id'], caption=text, parse_mode="HTML", protect_content=protect)
-        else:
-            await callback.message.answer_photo(r['photo_id'], protect_content=protect)
-            await callback.message.answer(text, parse_mode="HTML", protect_content=protect)
-    else:
-        await callback.message.answer(text, parse_mode="HTML", protect_content=protect)
-        
+
+    await _send_recipe(callback.message, r, callback.from_user.id)
+
     data = await state.get_data()
     back_data = data.get('last_list')
     

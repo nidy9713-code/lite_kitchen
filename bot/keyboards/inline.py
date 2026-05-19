@@ -122,6 +122,19 @@ def get_recipe_list_keyboard(recipes, back_data="start"):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data=back_data))
     return builder.as_markup()
 
+def get_related_recipes_keyboard(related):
+    """Кнопки для связанных рецептов (без /start в чате)."""
+    builder = InlineKeyboardBuilder()
+    seen = set()
+    for item in related:
+        rid = item["id"]
+        if rid in seen:
+            continue
+        seen.add(rid)
+        label = item.get("label") or f"Рецепт #{rid}"
+        builder.row(InlineKeyboardButton(text=f"🔗 {label}", callback_data=f"recipe_{rid}"))
+    return builder.as_markup() if seen else None
+
 def get_tips_keyboard(has_hacks=False):
     builder = InlineKeyboardBuilder()
     
