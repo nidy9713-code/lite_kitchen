@@ -166,24 +166,38 @@ class Database:
         col_rank = {c: i for i, c in enumerate(columns_priority)}
 
         # id -> (sort_key, row); sort_key = (column_tier, pattern_tier) — меньше = релевантнее
-        best: Dict[Any, tuple] = {}
+        # Чтобы не было дублей по названию (например, Плов на обед и ужин),
+        # используем title как ключ для дедупликации в рамках поиска.
+        best_by_title: Dict[str, tuple] = {}
 
         for pattern_tier, pattern in enumerate(patterns):
             for col in columns_priority:
                 response = self.supabase.table("recipes").select("*").ilike(col, pattern).execute()
                 for row in response.data or []:
-                    rid = row.get("id")
-                    if rid is None:
+                    title_key = (row.get("title") or "").strip().lower()
+                    if not title_key:
                         continue
+                    
+                    # Приоритет: 1) наличие фото, 2) релевантность (key)
+                    has_photo = row.get("photo_id") is not None
                     key = (col_rank[col], pattern_tier)
-                    prev = best.get(rid)
-                    if prev is None or key < prev[0]:
-                        best[rid] = (key, row)
+                    
+                    prev = best_by_title.get(title_key)
+                    # Если раньше не видели это название ИЛИ текущий вариант лучше (есть фото или выше релевантность)
+                    if prev is None:
+                        best_by_title[title_key] = (key, has_photo, row)
+                    else:
+                        prev_key, prev_has_photo, prev_row = prev
+                        # Заменяем, если:
+                        # - у текущего есть фото, а у старого нет
+                        # - или наличие фото одинаковое, но текущий релевантнее
+                        if (has_photo and not prev_has_photo) or (has_photo == prev_has_photo and key < prev_key):
+                            best_by_title[title_key] = (key, has_photo, row)
 
         # стабильный порядок при равном ключе: по названию
-        items = list(best.values())
-        items.sort(key=lambda x: (x[0], (x[1].get("title") or "").lower()))
-        return [row for _, row in items]
+        items = list(best_by_title.values())
+        items.sort(key=lambda x: (x[0], (x[2].get("title") or "").lower()))
+        return [row for _, _, row in items]
 
     async def filter_recipes(self, time_category: str, tag: str) -> List[Dict[str, Any]]:
         tag_map = {
