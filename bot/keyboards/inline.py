@@ -34,7 +34,7 @@ def get_subcategories_keyboard(meal_type: str):
 
 def get_main_menu():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🍽 Подобрать рецепт", callback_data="get_recipe"))
+    builder.row(InlineKeyboardButton(text="🍽 Прием пищи", callback_data="get_recipe"))
     builder.row(InlineKeyboardButton(text="🤯 Не знаю, что приготовить", callback_data="dont_know"))
     builder.row(InlineKeyboardButton(text="📚 Категории", callback_data="categories"))
     builder.row(InlineKeyboardButton(text="🔍 Поиск", callback_data="search"))

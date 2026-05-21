@@ -14,7 +14,7 @@ def check_db():
     
     print("=== АНАЛИЗ БАЗЫ ДАННЫХ ===")
     
-    # 1. Проверка по meal_type (для меню "Подобрать рецепт")
+    # 1. Проверка по meal_type (для меню "Прием пищи")
     print("\n1. Распределение по типам приема пищи (meal_type):")
     cursor.execute("SELECT meal_type, COUNT(*) FROM recipes GROUP BY meal_type")
     for row in cursor.fetchall():
