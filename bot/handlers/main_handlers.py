@@ -816,8 +816,11 @@ async def process_meal_selection(callback: types.CallbackQuery, state: FSMContex
         
         if meal_type == "Десерт":
             recipes = await db.get_recipes_by_meal_and_cat(meal_type, category)
+        elif meal_type == "Перекус":
+            # Для перекусов берем всё, что помечено этим типом (из разных категорий)
+            recipes = await db.get_recipes_by_meal_type(meal_type)
         else:
-            # For Salads, Casseroles, and Snacks, we just get by category
+            # For Salads and Casseroles, we just get by category
             recipes = await db.get_recipes_by_category(category)
         
         if not recipes:
