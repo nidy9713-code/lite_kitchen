@@ -806,19 +806,14 @@ async def meal_type_start(callback: types.CallbackQuery):
 async def process_meal_selection(callback: types.CallbackQuery, state: FSMContext):
     meal_type = callback.data.replace("meal_", "")
     
-    # Skip subcategories for Desserts, Salads, Casseroles, and Snacks
-    if meal_type in ["Десерт", "Салаты", "Запеканки", "Перекус"]:
+    # Skip subcategories for Desserts, Salads, and Casseroles
+    if meal_type in ["Десерт", "Салаты", "Запеканки"]:
         category = meal_type if meal_type != "Десерт" else "Десерты"
-        if meal_type == "Перекус":
-            category = "Перекус"
         
         await state.update_data(last_list=f"mealcat_{meal_type}_{category}")
         
         if meal_type == "Десерт":
             recipes = await db.get_recipes_by_meal_and_cat(meal_type, category)
-        elif meal_type == "Перекус":
-            # Для перекусов берем всё, что помечено этим типом (из разных категорий)
-            recipes = await db.get_recipes_by_meal_type(meal_type)
         else:
             # For Salads and Casseroles, we just get by category
             recipes = await db.get_recipes_by_category(category)
