@@ -25,6 +25,27 @@ class UserStates(StatesGroup):
     waiting_for_plan_time = State()
     waiting_for_plan_tag = State()
 
+def _deduplicate_by_title(recipes: list) -> list:
+    """Дедупликация списка рецептов по названию (приоритет рецептам с фото)."""
+    best: Dict[str, dict] = {}
+    for r in recipes:
+        title = (r.get("title") or "").strip().lower()
+        if not title:
+            continue
+        has_photo = r.get("photo_id") is not None
+        prev = best.get(title)
+        if prev is None:
+            best[title] = r
+        else:
+            prev_has_photo = prev.get("photo_id") is not None
+            # Заменяем, если у текущего есть фото, а у старого нет
+            if has_photo and not prev_has_photo:
+                best[title] = r
+            # Если наличие фото одинаковое, оставляем старый (с меньшим ID)
+    
+    # Сохраняем оригинальный порядок (насколько это возможно)
+    return list(best.values())
+
 def _parse_recipe_tags(tags_val):
     """Разбирает теги рецепта, скрывая служебные (related:123)."""
     display_tags = []
@@ -507,6 +528,10 @@ async def process_category_selection(callback: types.CallbackQuery, state: FSMCo
     if not recipes:
         await callback.answer(f"В разделе '{category}' пока нет рецептов.", show_alert=True)
         return
+    
+    # Дедупликация по названию для отображения в списке категорий
+    recipes = _deduplicate_by_title(recipes)
+    
     await callback.message.edit_text(f"Раздел: {category}", 
                                      reply_markup=get_recipe_list_keyboard(recipes, back_data))
     await callback.answer()
@@ -799,6 +824,9 @@ async def process_meal_selection(callback: types.CallbackQuery, state: FSMContex
             await callback.answer(f"В разделе '{category}' пока нет рецептов.", show_alert=True)
             return
             
+        # Дедупликация по названию
+        recipes = _deduplicate_by_title(recipes)
+            
         await callback.message.edit_text(f"Рецепты: {category}:", 
                                          reply_markup=get_recipe_list_keyboard(recipes, "get_recipe"))
         await callback.answer()
@@ -830,6 +858,9 @@ async def process_meal_category_selection(callback: types.CallbackQuery, state: 
     if not recipes:
         await callback.answer(f"В категории '{category}' для {meal_type.lower()} пока нет рецептов.", show_alert=True)
         return
+        
+    # Дедупликация по названию
+    recipes = _deduplicate_by_title(recipes)
         
     await callback.message.edit_text(f"Рецепты: {category} на {meal_type.lower()}:", 
                                      reply_markup=get_recipe_list_keyboard(recipes, f"meal_{meal_type}"))
