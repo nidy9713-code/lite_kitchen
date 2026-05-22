@@ -1,10 +1,16 @@
 import os
+from aiogram import Bot
 
 # Конфигурация бота
 TOKENS = [
     os.getenv("TOKEN", "8612001103:AAEZs0KLDzIot0ebn16wQA5Fp-9JqORyCLM"),
     "8541895475:AAEG9e77Chi9xleoViI6k3nmkObEX_uKL8M"
 ]
+
+def is_new_bot(bot: Bot) -> bool:
+    """Проверяет, является ли бот 'новым' (из BotHelp)."""
+    return bot.token == TOKENS[1]
+
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "1460226868,856763259").split(",")]
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gvhwuewphctsvailghpw.supabase.co")

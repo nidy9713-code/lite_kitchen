@@ -12,7 +12,7 @@ from bot.keyboards.inline import (
 
 )
 from bot.database.db import db
-from config import is_admin
+from config import is_admin, is_new_bot
 import json
 import re
 
@@ -487,7 +487,7 @@ async def cmd_start(message: types.Message):
     
     await message.answer(
         "🤖 Добро пожаловать!\nПомогу быстро подобрать рецепт или воспользоваться конструктором 🙂",
-        reply_markup=get_main_menu(),
+        reply_markup=get_main_menu(is_new=is_new_bot(message.bot)),
         protect_content=not is_admin(message.from_user.id)
     )
 
@@ -495,8 +495,111 @@ async def cmd_start(message: types.Message):
 async def back_to_start(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "🤖 Добро пожаловать!\nПомогу быстро подобрать рецепт или воспользоваться конструктором 🙂",
-        reply_markup=get_main_menu()
+        reply_markup=get_main_menu(is_new=is_new_bot(callback.bot))
     )
+    await callback.answer()
+
+# NEW SECTIONS FOR BOT 2
+@router.callback_query(F.data == "new_photo")
+async def show_new_photo(callback: types.CallbackQuery):
+    text = (
+        "📸 <b>ФОТО до встречи</b>\n\n"
+        "До встречи мне важно оценить и внешний вид, поэтому направьте мне пожалуйста фото:\n\n"
+        "1. В полный рост в нижнем белье: взгляд в камеру, фото сбоку, со спины\n"
+        "2. Лица при дневном освещении крупным планом без косметики\n"
+        "3. Фото ногтей на руках и на ногах при дневном освещении (если не покрыты лаком)\n"
+        "4. Фото языка сразу после пробуждения до чистки зубов и завтрака (меня интересует налет и следы от зубов)\n"
+        "5. Фото тех мест, которые на теле беспокоят (высыпания / сухие пятна и тд)"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="Отправить Диане в TG", url="https://t.me/diaChe"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data == "new_analysis")
+async def show_new_analysis(callback: types.CallbackQuery):
+    text = (
+        "🧪 <b>АНАЛИЗЫ</b>\n\n"
+        "После того, как вы заполните анкету, я направлю вам в личные сообщения список анализов и заказ в приложении HelloDoc на них со скидкой.\n\n"
+        "<b>Вы можете выбрать, как вам удобно пройти лабораторную диагностику, есть несколько способов:</b>\n"
+        "1. Пойти официальным путем через направление от педиатра / терапевта\n"
+        "2. Сдать в привычной лаборатории по моему списку\n"
+        "3. Вызвать специалиста лаборатории на дом и опять же по списку от меня выбрать необходимые обследования\n"
+        "4. Получить от меня заказ в приложении, ничего не выбирать и не искать, кроме удобной лаборатории.\n\n"
+        "Ниже по кнопкам вы найдете:\n"
+        "1. Гайд для подготовки к анализам НЮАНСЫ некоторых анализов, но все же рекомендую зайти на сайт лаборатории и ознакомиться и там тоже для чистоты результатов\n"
+        "2. Аудиопояснение про приложение\n"
+        "3. Анкеты"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📄 ГАЙД и нюансы", callback_data="new_guide"))
+    builder.row(InlineKeyboardButton(text="📲 Приложение HelloDoc", url="https://hellodoc.app/")) # Ссылка-заглушка
+    builder.row(InlineKeyboardButton(text="📋 Анкеты", callback_data="new_forms"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    builder.adjust(1)
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data == "new_guide")
+async def show_new_guide(callback: types.CallbackQuery):
+    text = (
+        "📄 <b>Гайд по подготовке к анализам</b>\n\n"
+        "Забирайте Гайд по подготовке к анализам ниже и уделите время прослушиванию аудио про 💩"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔙 Назад к анализам", callback_data="new_analysis"))
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+    # Здесь можно было бы отправить файл, если бы он был у нас
+    await callback.answer()
+
+@router.callback_query(F.data == "new_diary")
+async def show_new_diary(callback: types.CallbackQuery):
+    text = (
+        "📝 <b>ДНЕВНИК ПИТАНИЯ</b>\n\n"
+        "Вам нужно записывать всю еду в течение 3-5 дней.\n"
+        "- Проще все фотографировать и потом по галерее вечером записывать со временем приема пищи\n"
+        "- Несколько фото с тарелкой мне так же потребуются (пример на картинке выше)\n"
+        "- Не забывайте записывать жидкости, которые вы пьете\n"
+        "ДЕТКИ:\n"
+        "- Если речь о питании в учебном заведении - попросите там меню на эти дни и желательно обратную связь педагога, что ребенок ест\n\n"
+        "Не забудьте послушать аудио 😉"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📋 ПРИМЕР дневника питания", callback_data="new_diary_example"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data == "new_diary_example")
+async def show_new_diary_example(callback: types.CallbackQuery):
+    text = (
+        "📋 <b>Шаблон дневника питания</b>\n\n"
+        "Просто скопируйте текст ниже себе в заметки на телефоне, вносите питание и отправляйте мне как удобно - ежедневно или все сразу.\n\n"
+        "День N\n\n"
+        "Завтрак\nВремя\nСимптомы сразу после еды:\nСимптомы через 2 часа после еды:\n\n"
+        "Перекус\nВремя\nСимптомы сразу после еды:\nСимптомы через 2 часа после еды:\n\n"
+        "Обед\nВремя\nСимптомы сразу после еды:\nСимптомы через 2 часа после еды:\n\n"
+        "Полдник\nВремя\nСимптомы сразу после еды:\nСимптомы через 2 часа после еды:\n\n"
+        "Ужин\nВремя\nСимптомы сразу после еды:\nСимптомы через 2 часа после еды:\n\n"
+        "Количество воды за день:\n\n"
+        "Во сколько проснулись утром:\n\n"
+        "Во сколько уснули вечером:"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="new_diary"))
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data == "new_forms")
+async def show_new_forms(callback: types.CallbackQuery):
+    text = "📋 <b>Анкеты</b>\n\nВыберите нужную анкету для заполнения:"
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="👶 Анкета ДЕТСКАЯ", url="https://t.me/diaChe")) # Ссылка-заглушка
+    builder.row(InlineKeyboardButton(text="👩 Анкета ВЗРОСЛЫЕ", url="https://t.me/diaChe")) # Ссылка-заглушка
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    builder.adjust(1)
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()
 
 @router.callback_query(F.data == "categories")

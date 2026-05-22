@@ -33,9 +33,16 @@ def get_subcategories_keyboard(meal_type: str):
     builder.adjust(2)
     return builder.as_markup()
 
-def get_main_menu():
+def get_main_menu(is_new: bool = False):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🍽 Прием пищи", callback_data="get_recipe"))
+    
+    if is_new:
+        builder.row(InlineKeyboardButton(text="📸 ФОТО до встречи", callback_data="new_photo"))
+        builder.row(InlineKeyboardButton(text="🧪 АНАЛИЗЫ", callback_data="new_analysis"))
+        builder.row(InlineKeyboardButton(text="📝 ДНЕВНИК ПИТАНИЯ", callback_data="new_diary"))
+        builder.row(InlineKeyboardButton(text="📋 АНКЕТЫ", callback_data="new_forms"))
+
     builder.row(InlineKeyboardButton(text="🤯 Не знаю, что приготовить", callback_data="dont_know"))
     builder.row(InlineKeyboardButton(text="📚 Категории", callback_data="categories"))
     builder.row(InlineKeyboardButton(text="🔍 Поиск", callback_data="search"))
