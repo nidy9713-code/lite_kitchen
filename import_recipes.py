@@ -163,7 +163,7 @@ all_recipes = [
 ]
 
 async def run_import(notify=False):
-    bot = [Bot(token=t) for t in TOKENS] if notify else None
+    bot = Bot(token=TOKENS[0]) if notify else None
     
     conn = sqlite3.connect('recipes.db')
     cursor = conn.cursor()
@@ -195,8 +195,7 @@ async def run_import(notify=False):
         count += 1
     
     if bot:
-        for b in bot:
-            await b.session.close()
+        await bot.session.close()
         
     print(f"Импорт завершен! Добавлено новых рецептов: {count}")
 

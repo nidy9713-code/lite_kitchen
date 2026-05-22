@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional, List, Union
+from typing import Optional
 
 from aiogram import Bot
 from zoneinfo import ZoneInfo
@@ -20,7 +20,7 @@ def _is_quiet_hours_msk() -> bool:
     return h >= 19 or h < 9
 
 
-async def schedule_recipe_notification(bot: Optional[Union[Bot, List[Bot]]], recipe_data: dict, db):
+async def schedule_recipe_notification(bot: Optional[Bot], recipe_data: dict, db):
     """
     Уведомление о новом рецепте: с 09:00 до 19:00 МСК — сразу (если передан bot),
     иначе запись в очередь на утреннюю рассылку.
@@ -42,12 +42,12 @@ async def schedule_recipe_notification(bot: Optional[Union[Bot, List[Bot]]], rec
     return await send_broadcast(bot, title, category, db)
 
 
-async def announce_new_recipe(bot: Union[Bot, List[Bot]], recipe_data: dict, db):
+async def announce_new_recipe(bot: Bot, recipe_data: dict, db):
     """Совместимость: то же, что schedule_recipe_notification с bot."""
     return await schedule_recipe_notification(bot, recipe_data, db)
 
 
-async def send_broadcast(bot: Union[Bot, List[Bot]], title: str, category: str, db) -> int:
+async def send_broadcast(bot: Bot, title: str, category: str, db) -> int:
     user_ids = await db.get_all_user_ids()
     if not user_ids:
         logging.warning(
@@ -62,29 +62,22 @@ async def send_broadcast(bot: Union[Bot, List[Bot]], title: str, category: str, 
         f"Загляните в бота, чтобы посмотреть подробности! ✨"
     )
 
-    bots = [bot] if isinstance(bot, Bot) else bot
     count = 0
     for uid in user_ids:
-        # Try each bot until one succeeds
-        sent = False
-        for b in bots:
-            try:
-                await b.send_message(
-                    uid, text, parse_mode="HTML", protect_content=not is_admin(uid)
-                )
-                count += 1
-                sent = True
-                break # Success, move to next user
-            except Exception:
-                continue
-        
-        if sent:
+        try:
+            await bot.send_message(
+                uid, text, parse_mode="HTML", protect_content=not is_admin(uid)
+            )
+            count += 1
             await asyncio.sleep(0.05)
-            
+        except Exception as e:
+            logging.debug("Не удалось отправить сообщение пользователю %s: %s", uid, e)
+            continue
+
     return count
 
 
-async def check_and_send_delayed_notifications(bot: Union[Bot, List[Bot]], db):
+async def check_and_send_delayed_notifications(bot: Bot, db):
     """
     Отправка накопившихся уведомлений (cron в 09:00 МСК и догон при старте в окне 09–19 МСК).
     Удаляем из очереди только те записи, по которым удалось отправить хотя бы одно сообщение.

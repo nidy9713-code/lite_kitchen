@@ -90,14 +90,14 @@ async def main() -> None:
     await on_startup()
 
     # Планировщик: 09:00 МСК; misfire — если процесс был недоступен в момент запуска, догон в течение 3 ч
-    # Используем список ботов для рассылок
+    # Используем только первого бота для рассылок (по просьбе пользователя)
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     scheduler.add_job(
         check_and_send_delayed_notifications,
         "cron",
         hour=9,
         minute=0,
-        args=[bots, db],
+        args=[bots[0], db],
         misfire_grace_time=10800,
         coalesce=True,
         max_instances=1,
@@ -107,7 +107,7 @@ async def main() -> None:
     # Догон: после ночной очереди, если бот поднялся между 09:00 и 19:00 МСК — сразу отправить накопившееся
     msk_hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
     if 9 <= msk_hour < 19:
-        await check_and_send_delayed_notifications(bots, db)
+        await check_and_send_delayed_notifications(bots[0], db)
 
     # Удаление вебхуков перед запуском
     for bot in bots:

@@ -148,7 +148,7 @@ SMOOTHIES = [
 ]
 
 async def import_smoothies(notify=False):
-    bot = [Bot(token=t) for t in TOKENS] if notify else None
+    bot = Bot(token=TOKENS[0]) if notify else None
     
     # Сначала удалим старые смузи из этой категории, если они есть, чтобы не дублировать
     # Или просто проверим по названиям

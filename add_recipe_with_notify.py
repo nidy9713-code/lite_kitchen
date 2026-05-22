@@ -17,7 +17,7 @@ async def add_single_recipe():
     }
     
     # Инициализируем бота для рассылки
-    bot = [Bot(token=t) for t in TOKENS]
+    bot = Bot(token=TOKENS[0])
     
     # Добавляем рецепт (рассылка произойдет автоматически, так как передан bot)
     recipe_id = await db.add_recipe(new_recipe, bot=bot)
