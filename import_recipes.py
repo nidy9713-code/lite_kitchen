@@ -1,7 +1,9 @@
 import asyncio
 import json
 import sqlite3
+from aiogram import Bot
 from bot.database.db import db
+from config import TOKENS
 
 all_recipes = [
   {
@@ -161,7 +163,7 @@ all_recipes = [
 ]
 
 async def run_import(notify=False):
-    bot = Bot(token=TOKEN) if notify else None
+    bot = [Bot(token=t) for t in TOKENS] if notify else None
     
     conn = sqlite3.connect('recipes.db')
     cursor = conn.cursor()
@@ -193,7 +195,8 @@ async def run_import(notify=False):
         count += 1
     
     if bot:
-        await bot.session.close()
+        for b in bot:
+            await b.session.close()
         
     print(f"Импорт завершен! Добавлено новых рецептов: {count}")
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 from bot.database.db import db
 from aiogram import Bot
-from config import TOKEN
+from config import TOKENS
 
 SMOOTHIES = [
   {
@@ -148,7 +148,7 @@ SMOOTHIES = [
 ]
 
 async def import_smoothies(notify=False):
-    bot = Bot(token=TOKEN) if notify else None
+    bot = [Bot(token=t) for t in TOKENS] if notify else None
     
     # Сначала удалим старые смузи из этой категории, если они есть, чтобы не дублировать
     # Или просто проверим по названиям

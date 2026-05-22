@@ -1,7 +1,7 @@
 import asyncio
 from bot.database.db import db
 from aiogram import Bot
-from config import TOKEN
+from config import TOKENS
 
 async def add_single_recipe():
     # Пример данных рецепта
@@ -17,7 +17,7 @@ async def add_single_recipe():
     }
     
     # Инициализируем бота для рассылки
-    bot = Bot(token=TOKEN)
+    bot = [Bot(token=t) for t in TOKENS]
     
     # Добавляем рецепт (рассылка произойдет автоматически, так как передан bot)
     recipe_id = await db.add_recipe(new_recipe, bot=bot)

@@ -1,7 +1,10 @@
 import os
 
 # Конфигурация бота
-TOKEN = os.getenv("TOKEN", "8612001103:AAEZs0KLDzIot0ebn16wQA5Fp-9JqORyCLM")
+TOKENS = [
+    os.getenv("TOKEN", "8612001103:AAEZs0KLDzIot0ebn16wQA5Fp-9JqORyCLM"),
+    "8541895475:AAEG9e77Chi9xleoViI6k3nmkObEX_uKL8M"
+]
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "1460226868,856763259").split(",")]
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gvhwuewphctsvailghpw.supabase.co")

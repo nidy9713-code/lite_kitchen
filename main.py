@@ -14,9 +14,9 @@ from bot.admin import handlers as admin_handlers
 from bot.database.db import db
 from bot.utils.access_middleware import AccessMiddleware
 from bot.utils.mailing import check_and_send_delayed_notifications
-from config import TOKEN
+from config import TOKENS
 
-BOT_BUILD = "2026-05-19-toast-hummus-link"
+BOT_BUILD = "2026-05-22-multi-bot"
 
 # Вставьте ваш токен здесь
 
@@ -57,12 +57,12 @@ async def on_startup():
             await db.add_recipe(r)
 
 async def main() -> None:
-    logging.info("Инициализация бота...")
+    logging.info("Инициализация ботов...")
     
-    bot = Bot(
-        token=TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
+    bots = [
+        Bot(token=t, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        for t in TOKENS
+    ]
     
     dp = Dispatcher()
 
@@ -90,13 +90,14 @@ async def main() -> None:
     await on_startup()
 
     # Планировщик: 09:00 МСК; misfire — если процесс был недоступен в момент запуска, догон в течение 3 ч
+    # Используем список ботов для рассылок
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     scheduler.add_job(
         check_and_send_delayed_notifications,
         "cron",
         hour=9,
         minute=0,
-        args=[bot, db],
+        args=[bots, db],
         misfire_grace_time=10800,
         coalesce=True,
         max_instances=1,
@@ -106,13 +107,14 @@ async def main() -> None:
     # Догон: после ночной очереди, если бот поднялся между 09:00 и 19:00 МСК — сразу отправить накопившееся
     msk_hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
     if 9 <= msk_hour < 19:
-        await check_and_send_delayed_notifications(bot, db)
+        await check_and_send_delayed_notifications(bots, db)
 
-    # Удаление вебхука перед запуском
-    await bot.delete_webhook(drop_pending_updates=True)
+    # Удаление вебхуков перед запуском
+    for bot in bots:
+        await bot.delete_webhook(drop_pending_updates=True)
     
-    print(f"Бот запущен и готов к работе! build={BOT_BUILD}")
-    await dp.start_polling(bot)
+    print(f"Боты запущены и готовы к работе! build={BOT_BUILD}")
+    await dp.start_polling(*bots)
 
 if __name__ == "__main__":
     logging.basicConfig(
