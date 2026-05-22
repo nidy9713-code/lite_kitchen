@@ -3,7 +3,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, FSInputFile
 from bot.keyboards.inline import (
     get_main_menu, get_categories_main_keyboard, get_product_categories_keyboard, get_recipe_list_keyboard,
     get_time_selection, get_tag_selection, get_tips_keyboard, get_final_options, get_back_button,
@@ -534,10 +534,18 @@ async def show_new_analysis(callback: types.CallbackQuery):
     )
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📄 ГАЙД и нюансы", callback_data="new_guide"))
-    builder.row(InlineKeyboardButton(text="📲 Приложение HelloDoc", url="https://hellodoc.app/")) # Ссылка-заглушка
+    builder.row(InlineKeyboardButton(text="📲 Приложение HelloDoc", url="https://hellodoc.app/s/6pt4e/"))
     builder.row(InlineKeyboardButton(text="📋 Анкеты", callback_data="new_forms"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
     builder.adjust(1)
+    
+    # Send voice message about HelloDoc
+    voice_path = "assets/bot_media/prilojenie_HelloDoc.ogg"
+    try:
+        await callback.message.answer_voice(FSInputFile(voice_path), caption="🎙 Аудиопояснение про приложение HelloDoc")
+    except Exception as e:
+        print(f"Error sending voice: {e}")
+
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()
 
@@ -549,8 +557,15 @@ async def show_new_guide(callback: types.CallbackQuery):
     )
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 Назад к анализам", callback_data="new_analysis"))
+    
+    # Send voice message about analysis nuances
+    voice_path = "assets/bot_media/kal_-_nyuansyi_analiza.ogg"
+    try:
+        await callback.message.answer_voice(FSInputFile(voice_path), caption="🎙 Аудио про нюансы анализов")
+    except Exception as e:
+        print(f"Error sending voice: {e}")
+
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
-    # Здесь можно было бы отправить файл, если бы он был у нас
     await callback.answer()
 
 @router.callback_query(F.data == "new_diary")
@@ -568,6 +583,23 @@ async def show_new_diary(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📋 ПРИМЕР дневника питания", callback_data="new_diary_example"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    
+    # Send plate example photo
+    photo_path = "assets/bot_media/diary_plate.png"
+    try:
+        await callback.message.answer_photo(FSInputFile(photo_path), caption="📸 Пример фото тарелки для дневника")
+    except Exception as e:
+        print(f"Error sending photo: {e}")
+        
+    # Send voice messages
+    v1 = "assets/bot_media/Zachem_zapisyivat__edu.ogg"
+    v2 = "assets/bot_media/dnevnik_pitaniya_na_GV.ogg"
+    try:
+        await callback.message.answer_voice(FSInputFile(v1), caption="🎙 Зачем записывать еду")
+        await callback.message.answer_voice(FSInputFile(v2), caption="🎙 Дневник питания на ГВ")
+    except Exception as e:
+        print(f"Error sending voice: {e}")
+
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()
 
@@ -588,6 +620,14 @@ async def show_new_diary_example(callback: types.CallbackQuery):
     )
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="new_diary"))
+    
+    # Send voice message about symptoms
+    voice_path = "assets/bot_media/simptomyi__-_kakie__.ogg"
+    try:
+        await callback.message.answer_voice(FSInputFile(voice_path), caption="🎙 Про симптомы после еды")
+    except Exception as e:
+        print(f"Error sending voice: {e}")
+
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()
 
@@ -595,8 +635,8 @@ async def show_new_diary_example(callback: types.CallbackQuery):
 async def show_new_forms(callback: types.CallbackQuery):
     text = "📋 <b>Анкеты</b>\n\nВыберите нужную анкету для заполнения:"
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="👶 Анкета ДЕТСКАЯ", url="https://t.me/diaChe")) # Ссылка-заглушка
-    builder.row(InlineKeyboardButton(text="👩 Анкета ВЗРОСЛЫЕ", url="https://t.me/diaChe")) # Ссылка-заглушка
+    builder.row(InlineKeyboardButton(text="👶 Анкета ДЕТСКАЯ", url="https://forms.yandex.ru/cloud/6697836aeb6146284c8ac8af/"))
+    builder.row(InlineKeyboardButton(text="👩 Анкета ВЗРОСЛЫЕ", url="https://forms.yandex.ru/cloud/669682d22530c212b560a8eb/"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
     builder.adjust(1)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
