@@ -558,6 +558,16 @@ async def show_new_guide(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 Назад к анализам", callback_data="new_analysis"))
     
+    # Send PDF file
+    pdf_path = "assets/bot_media/gayd_ANALIZY.pdf"
+    try:
+        await callback.message.answer_document(
+            FSInputFile(pdf_path), 
+            caption="📄 Гайд АНАЛИЗЫ Чекунова Диана"
+        )
+    except Exception as e:
+        print(f"Error sending PDF: {e}")
+
     # Send voice message about analysis nuances
     voice_path = "assets/bot_media/kal_-_nyuansyi_analiza.ogg"
     try:
