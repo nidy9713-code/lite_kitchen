@@ -38,10 +38,10 @@ def get_main_menu(is_new: bool = False):
     builder.row(InlineKeyboardButton(text="🍽 Прием пищи", callback_data="get_recipe"))
     
     if is_new:
-        builder.row(InlineKeyboardButton(text="📸 ФОТО до встречи", callback_data="new_photo"))
-        builder.row(InlineKeyboardButton(text="🧪 АНАЛИЗЫ", callback_data="new_analysis"))
-        builder.row(InlineKeyboardButton(text="📝 ДНЕВНИК ПИТАНИЯ", callback_data="new_diary"))
-        builder.row(InlineKeyboardButton(text="📋 АНКЕТЫ", callback_data="new_forms"))
+        builder.row(InlineKeyboardButton(text="📸 Фото до встречи", callback_data="new_photo"))
+        builder.row(InlineKeyboardButton(text="🧪 Анализы", callback_data="new_analysis"))
+        builder.row(InlineKeyboardButton(text="📝 Дневник питания", callback_data="new_diary"))
+        builder.row(InlineKeyboardButton(text="📋 Анкеты", callback_data="new_forms"))
 
     builder.row(InlineKeyboardButton(text="🤯 Не знаю, что приготовить", callback_data="dont_know"))
     builder.row(InlineKeyboardButton(text="📚 Категории", callback_data="categories"))
