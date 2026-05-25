@@ -1156,14 +1156,21 @@ async def show_pdf(callback: types.CallbackQuery):
     
     # Send sugar label PDF to both bots
     sugar_pdf = "assets/bot_media/sugar_on_label.pdf"
+    fart_pdf = "assets/bot_media/pochemu_vyi_pukaete.pdf"
+    
     try:
         await callback.message.answer_document(
             FSInputFile(sugar_pdf),
             caption="📥 Сахар на этикетке",
             protect_content=protect
         )
+        await callback.message.answer_document(
+            FSInputFile(fart_pdf),
+            caption="📥 Почему вы пукаете",
+            protect_content=protect
+        )
     except Exception as e:
-        print(f"Error sending sugar PDF: {e}")
+        print(f"Error sending PDFs: {e}")
 
     await callback.message.answer(pdf_text, parse_mode="HTML", reply_markup=get_back_button("start"), protect_content=protect)
     try:
