@@ -328,11 +328,12 @@ async def admin_edit_meal_subcats(callback: types.CallbackQuery, state: FSMConte
         "Завтрак": ["Каши", "Завтраки из яиц", "Оладушки и блины", "Творог и молочка", "Брускеты и круассаны"],
         "Обед": ["Супы", "Мясо", "Рыба", "Блюда из овощей", "Блюда из печени и сердца"],
         "Ужин": ["Мясо", "Рыба", "Блюда из овощей", "Блюда из печени и сердца", "Гарниры"],
+        "Перекус": ["Оладушки и блины", "Творог и молочка", "Запеканки", "Десерты", "Перекус"],
         "Напиток": ["Горячие напитки", "Лимонады", "Детокс", "Смузи для детей", "Сезонные смузи"]
     }
     
-    # Handle direct categories (Salads, Casseroles, Snacks)
-    if meal_type in ["Салаты", "Запеканки", "Перекус"]:
+    # Handle direct categories (Salads, Casseroles)
+    if meal_type in ["Салаты", "Запеканки"]:
         recipes = await db.get_recipes_by_category(meal_type)
         if not recipes:
             await callback.answer(f"В разделе '{meal_type}' нет рецептов.", show_alert=True)

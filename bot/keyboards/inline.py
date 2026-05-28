@@ -195,6 +195,14 @@ def get_seasonal_smoothies_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
+def get_pdf_list_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📥 Сахар на этикетке", callback_data="pdf_sugar"))
+    builder.row(InlineKeyboardButton(text="📥 Почему вы пукаете", callback_data="pdf_fart"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
+    builder.adjust(1)
+    return builder.as_markup()
+
 def get_admin_main():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="➕ Добавить рецепт", callback_data="admin_add"))

@@ -140,17 +140,12 @@ class Database:
 
     async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
         """
-        Поиск по подстроке (без учёта регистра): название, ингредиенты, теги, описание, замены.
-        Несколько запросов .ilike() вместо одного .or_() — так надёжнее с кириллицей и % в PostgREST.
-        Для каждого слова запроса добавляются варианты с типичными русскими окончаниями (свинина → свинин…),
-        плюс отдельные шаблоны для «курица / курочка / куриный…».
-        Ранжирование: важнее совпадение в названии, затем в ингредиентах; «О рецепте» и замены — ниже,
-        чтобы лишние упоминания в тексте не поднимали нерелевантные блюда выше.
+        Поиск по подстроке (без учёта регистра): название, ингредиенты, теги, описание, замены, категория.
+        Оптимизировано: используем .or_() для поиска по всем колонкам за один запрос на каждый паттерн.
         """
         raw = (query or "").strip()
         if not raw:
             return []
-        # убираем символы шаблона ILIKE из ввода пользователя
         safe = raw.replace("%", "").replace("_", "").strip()
         if not safe:
             return []
@@ -162,39 +157,42 @@ class Database:
             "tags",
             "about",
             "substitutions",
+            "category",
+            "meal_type"
         )
         col_rank = {c: i for i, c in enumerate(columns_priority)}
 
-        # id -> (sort_key, row); sort_key = (column_tier, pattern_tier) — меньше = релевантнее
-        # Чтобы не было дублей по названию (например, Плов на обед и ужин),
-        # используем title как ключ для дедупликации в рамках поиска.
         best_by_title: Dict[str, tuple] = {}
 
         for pattern_tier, pattern in enumerate(patterns):
-            for col in columns_priority:
-                response = self.supabase.table("recipes").select("*").ilike(col, pattern).execute()
-                for row in response.data or []:
-                    title_key = (row.get("title") or "").strip().lower()
-                    if not title_key:
-                        continue
-                    
-                    # Приоритет: 1) наличие фото, 2) релевантность (key)
-                    has_photo = row.get("photo_id") is not None
-                    key = (col_rank[col], pattern_tier)
-                    
-                    prev = best_by_title.get(title_key)
-                    # Если раньше не видели это название ИЛИ текущий вариант лучше (есть фото или выше релевантность)
-                    if prev is None:
+            # Формируем условие OR для всех колонок
+            or_filter = ",".join([f"{col}.ilike.{pattern}" for col in columns_priority])
+            response = self.supabase.table("recipes").select("*").or_(or_filter).execute()
+            
+            for row in response.data or []:
+                title_key = (row.get("title") or "").strip().lower()
+                if not title_key:
+                    continue
+                
+                # Определяем, в какой колонке нашлось совпадение для ранжирования
+                # (так как мы использовали OR, нам нужно проверить вручную или просто взять минимальный ранг)
+                match_col_tier = len(columns_priority)
+                for col in columns_priority:
+                    val = str(row.get(col) or "").lower()
+                    if pattern.replace("%", "").lower() in val:
+                        match_col_tier = min(match_col_tier, col_rank[col])
+                
+                has_photo = row.get("photo_id") is not None
+                key = (match_col_tier, pattern_tier)
+                
+                prev = best_by_title.get(title_key)
+                if prev is None:
+                    best_by_title[title_key] = (key, has_photo, row)
+                else:
+                    prev_key, prev_has_photo, prev_row = prev
+                    if (has_photo and not prev_has_photo) or (has_photo == prev_has_photo and key < prev_key):
                         best_by_title[title_key] = (key, has_photo, row)
-                    else:
-                        prev_key, prev_has_photo, prev_row = prev
-                        # Заменяем, если:
-                        # - у текущего есть фото, а у старого нет
-                        # - или наличие фото одинаковое, но текущий релевантнее
-                        if (has_photo and not prev_has_photo) or (has_photo == prev_has_photo and key < prev_key):
-                            best_by_title[title_key] = (key, has_photo, row)
 
-        # стабильный порядок при равном ключе: по названию
         items = list(best_by_title.values())
         items.sort(key=lambda x: (x[0], (x[2].get("title") or "").lower()))
         return [row for _, _, row in items]
@@ -238,11 +236,11 @@ class Database:
         return response.data
 
     async def get_recipes_by_meal_type(self, meal_type: str) -> List[Dict[str, Any]]:
-        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).execute()
+        response = self.supabase.table("recipes").select("*").ilike("meal_type", f"%{meal_type}%").execute()
         return response.data
 
     async def get_recipes_by_meal_and_cat(self, meal_type: str, category: str) -> List[Dict[str, Any]]:
-        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).eq("category", category).execute()
+        response = self.supabase.table("recipes").select("*").ilike("meal_type", f"%{meal_type}%").eq("category", category).execute()
         return response.data
 
     async def delete_recipe(self, recipe_id: int):
@@ -332,23 +330,23 @@ class Database:
         q_tag = f"%{search_tag}%"
         
         # Try strict match: meal_type + time + tag
-        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).eq("time_category", time_category).or_(
+        response = self.supabase.table("recipes").select("*").ilike("meal_type", f"%{meal_type}%").eq("time_category", time_category).or_(
             f"tags.ilike.{q_tag},about.ilike.{q_tag},ingredients.ilike.{q_tag},title.ilike.{q_tag},category.ilike.{q_tag}"
         ).limit(1).execute()
         if response.data: return response.data[0]
         
         # Fallback 1: meal_type + tag
-        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).or_(
+        response = self.supabase.table("recipes").select("*").ilike("meal_type", f"%{meal_type}%").or_(
             f"tags.ilike.{q_tag},about.ilike.{q_tag},ingredients.ilike.{q_tag},title.ilike.{q_tag},category.ilike.{q_tag}"
         ).limit(1).execute()
         if response.data: return response.data[0]
         
         # Fallback 2: meal_type + time
-        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).eq("time_category", time_category).limit(1).execute()
+        response = self.supabase.table("recipes").select("*").ilike("meal_type", f"%{meal_type}%").eq("time_category", time_category).limit(1).execute()
         if response.data: return response.data[0]
         
         # Fallback 3: meal_type only
-        response = self.supabase.table("recipes").select("*").eq("meal_type", meal_type).limit(1).execute()
+        response = self.supabase.table("recipes").select("*").ilike("meal_type", f"%{meal_type}%").limit(1).execute()
         return response.data[0] if response.data else None
 
     # PENDING NOTIFICATIONS

@@ -9,7 +9,7 @@ from bot.keyboards.inline import (
     get_time_selection, get_tag_selection, get_tips_keyboard, get_final_options, get_back_button,
     get_meal_type_keyboard, get_subcategories_keyboard, get_constructor_list_keyboard,
     get_cooking_tips_keyboard, get_seasonal_smoothies_keyboard, get_related_recipes_keyboard,
-
+    get_pdf_list_keyboard,
 )
 from bot.database.db import db
 from config import is_admin, is_new_bot
@@ -1150,33 +1150,33 @@ async def show_constructor(callback: types.CallbackQuery):
 
 # PDF
 @router.callback_query(F.data == "get_pdf")
-async def show_pdf(callback: types.CallbackQuery):
-    pdf_text = await db.get_setting("pdf_text")
+async def show_pdf_list(callback: types.CallbackQuery):
+    pdf_text = await db.get_setting("pdf_text", "Выберите файл для скачивания:")
+    await callback.message.edit_text(pdf_text, parse_mode="HTML", reply_markup=get_pdf_list_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("pdf_"))
+async def process_pdf_selection(callback: types.CallbackQuery):
+    pdf_type = callback.data.replace("pdf_", "")
     protect = not is_admin(callback.from_user.id)
     
-    # Send sugar label PDF to both bots
-    sugar_pdf = "assets/bot_media/sugar_on_label.pdf"
-    fart_pdf = "assets/bot_media/pochemu_vyi_pukaete.pdf"
+    pdf_map = {
+        "sugar": ("assets/bot_media/sugar_on_label.pdf", "📥 Сахар на этикетке"),
+        "fart": ("assets/bot_media/pochemu_vyi_pukaete.pdf", "📥 Почему вы пукаете")
+    }
     
-    try:
-        await callback.message.answer_document(
-            FSInputFile(sugar_pdf),
-            caption="📥 Сахар на этикетке",
-            protect_content=protect
-        )
-        await callback.message.answer_document(
-            FSInputFile(fart_pdf),
-            caption="📥 Почему вы пукаете",
-            protect_content=protect
-        )
-    except Exception as e:
-        print(f"Error sending PDFs: {e}")
-
-    await callback.message.answer(pdf_text, parse_mode="HTML", reply_markup=get_back_button("start"), protect_content=protect)
-    try:
-        await callback.message.delete()
-    except:
-        pass
+    if pdf_type in pdf_map:
+        path, caption = pdf_map[pdf_type]
+        try:
+            await callback.message.answer_document(
+                FSInputFile(path),
+                caption=caption,
+                protect_content=protect
+            )
+        except Exception as e:
+            print(f"Error sending PDF {pdf_type}: {e}")
+            await callback.answer("Ошибка при отправке файла.", show_alert=True)
+    
     await callback.answer()
 
 # ASK QUESTION
