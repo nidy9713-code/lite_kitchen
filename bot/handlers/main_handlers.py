@@ -593,15 +593,21 @@ async def show_new_diary(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📋 Пример дневника питания", callback_data="new_diary_example"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="start"))
-    
-    # Send plate example photo
+    markup = builder.as_markup()
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+    except Exception as e:
+        print(f"Error editing diary message: {e}")
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=markup)
+    await callback.answer()
+
     photo_path = "assets/bot_media/diary_plate.png"
     try:
         await callback.message.answer_photo(FSInputFile(photo_path), caption="📸 Пример фото тарелки для дневника")
     except Exception as e:
         print(f"Error sending photo: {e}")
-        
-    # Send voice messages
+
     v1 = "assets/bot_media/Zachem_zapisyivat__edu.ogg"
     v2 = "assets/bot_media/dnevnik_pitaniya_na_GV.ogg"
     try:
@@ -609,9 +615,6 @@ async def show_new_diary(callback: types.CallbackQuery):
         await callback.message.answer_voice(FSInputFile(v2), caption="🎙 Дневник питания на ГВ")
     except Exception as e:
         print(f"Error sending voice: {e}")
-
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
-    await callback.answer()
 
 @router.callback_query(F.data == "new_diary_example")
 async def show_new_diary_example(callback: types.CallbackQuery):
@@ -630,16 +633,20 @@ async def show_new_diary_example(callback: types.CallbackQuery):
     )
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="new_diary"))
-    
-    # Send voice message about symptoms
+    markup = builder.as_markup()
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+    except Exception as e:
+        print(f"Error editing diary example message: {e}")
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=markup)
+    await callback.answer()
+
     voice_path = "assets/bot_media/simptomyi__-_kakie__.ogg"
     try:
         await callback.message.answer_voice(FSInputFile(voice_path), caption="🎙 Про симптомы после еды")
     except Exception as e:
         print(f"Error sending voice: {e}")
-
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
-    await callback.answer()
 
 @router.callback_query(F.data == "new_forms")
 async def show_new_forms(callback: types.CallbackQuery):
