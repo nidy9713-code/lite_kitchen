@@ -46,6 +46,7 @@ def get_main_menu(is_new: bool = False):
     builder.row(InlineKeyboardButton(text="🤯 Не знаю, что приготовить", callback_data="dont_know"))
     builder.row(InlineKeyboardButton(text="📚 Категории", callback_data="categories"))
     builder.row(InlineKeyboardButton(text="🔍 Поиск", callback_data="search"))
+    builder.row(InlineKeyboardButton(text="⭐ Избранное", callback_data="favorites"))
     builder.row(InlineKeyboardButton(text="🧩 Конструктор", callback_data="constructor"))
     builder.row(InlineKeyboardButton(text="💡 Советы", callback_data="tips"))
     builder.row(InlineKeyboardButton(text="📥 PDF", callback_data="get_pdf"))
@@ -231,9 +232,14 @@ def get_back_button(callback_data):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data=callback_data))
     return builder.as_markup()
 
-def get_final_options(back_data=None, show_more_data="dont_know", related=None):
+def get_final_options(back_data=None, show_more_data="dont_know", related=None, recipe_id=None, is_favorite=False):
     builder = InlineKeyboardBuilder()
     _add_related_recipe_rows(builder, related)
+    if recipe_id is not None:
+        if is_favorite:
+            builder.row(InlineKeyboardButton(text="💔 Убрать из избранного", callback_data=f"fav_remove_{recipe_id}"))
+        else:
+            builder.row(InlineKeyboardButton(text="⭐ В избранное", callback_data=f"fav_add_{recipe_id}"))
     if back_data:
         builder.row(InlineKeyboardButton(text="🔙 Назад к списку", callback_data=back_data))
     

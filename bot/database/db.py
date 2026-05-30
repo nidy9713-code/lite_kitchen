@@ -244,6 +244,7 @@ class Database:
         return response.data
 
     async def delete_recipe(self, recipe_id: int):
+        self.supabase.table("favorites").delete().eq("recipe_id", recipe_id).execute()
         self.supabase.table("recipes").delete().eq("id", recipe_id).execute()
 
     async def update_recipe(self, recipe_id: int, data: Dict[str, Any]):
@@ -288,6 +289,55 @@ class Database:
     async def get_all_user_ids(self) -> List[int]:
         response = self.supabase.table("users").select("user_id").execute()
         return [row['user_id'] for row in response.data]
+
+    # FAVORITES
+    async def is_favorite(self, user_id: int, recipe_id: int) -> bool:
+        response = (
+            self.supabase.table("favorites")
+            .select("recipe_id")
+            .eq("user_id", user_id)
+            .eq("recipe_id", recipe_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(response.data)
+
+    async def add_favorite(self, user_id: int, recipe_id: int) -> bool:
+        response = (
+            self.supabase.table("favorites")
+            .upsert(
+                {"user_id": user_id, "recipe_id": recipe_id},
+                on_conflict="user_id,recipe_id",
+            )
+            .execute()
+        )
+        return bool(response.data)
+
+    async def remove_favorite(self, user_id: int, recipe_id: int) -> bool:
+        response = (
+            self.supabase.table("favorites")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("recipe_id", recipe_id)
+            .execute()
+        )
+        return bool(response.data)
+
+    async def get_favorite_recipes(self, user_id: int) -> List[Dict[str, Any]]:
+        fav_response = (
+            self.supabase.table("favorites")
+            .select("recipe_id")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        ids = [row["recipe_id"] for row in (fav_response.data or [])]
+        if not ids:
+            return []
+
+        recipes_response = self.supabase.table("recipes").select("*").in_("id", ids).execute()
+        by_id = {r["id"]: r for r in (recipes_response.data or [])}
+        return [by_id[rid] for rid in ids if rid in by_id]
 
     # CONSTRUCTORS
     async def add_constructor(self, data: Dict[str, Any]):

@@ -297,6 +297,19 @@ async def _resolve_related_labels(related: list) -> list:
             resolved.append({"id": item["id"], "label": recipe["title"]})
     return resolved
 
+async def _recipe_final_markup(user_id: int, recipe_id: int, state: FSMContext, related=None):
+    data = await state.get_data()
+    back_data = data.get("last_list")
+    show_more = "plan_day" if back_data == "plan_day" or data.get("plan_time") else "dont_know"
+    is_fav = await db.is_favorite(user_id, recipe_id)
+    return get_final_options(
+        back_data,
+        show_more,
+        related=related,
+        recipe_id=recipe_id,
+        is_favorite=is_fav,
+    )
+
 async def _send_recipe(message: types.Message, recipe: dict, user_id: int, related: list = None):
     text, parsed_related = format_recipe(recipe)
     if related is None:
@@ -707,14 +720,6 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
     related = await build_related_for_recipe(r)
     await _send_recipe(callback.message, r, callback.from_user.id, related=related)
 
-    data = await state.get_data()
-    back_data = data.get('last_list')
-    
-    # Определяем, какую кнопку "Показать еще" выводить
-    show_more = "dont_know"
-    if back_data == "plan_day" or data.get('plan_time'):
-        show_more = "plan_day"
-
     protect = not is_admin(callback.from_user.id)
     if related:
         await callback.message.answer(
@@ -722,13 +727,61 @@ async def show_recipe(callback: types.CallbackQuery, state: FSMContext):
             reply_markup=get_related_recipes_keyboard(related),
             protect_content=protect,
         )
-    
+
+    final_markup = await _recipe_final_markup(callback.from_user.id, recipe_id, state, related=related)
     await callback.message.answer(
         "Хотите еще варианты?",
-        reply_markup=get_final_options(back_data, show_more, related=related),
+        reply_markup=final_markup,
         protect_content=protect,
     )
     await callback.answer()
+
+@router.callback_query(F.data == "favorites")
+async def show_favorites(callback: types.CallbackQuery, state: FSMContext):
+    recipes = await db.get_favorite_recipes(callback.from_user.id)
+    if not recipes:
+        await callback.message.edit_text(
+            "⭐ <b>Избранное</b>\n\n"
+            "Пока пусто. Откройте любой рецепт и нажмите «В избранное».",
+            parse_mode="HTML",
+            reply_markup=get_back_button("start"),
+        )
+    else:
+        await state.update_data(last_list="favorites")
+        await callback.message.edit_text(
+            f"⭐ <b>Избранное</b> ({len(recipes)})",
+            parse_mode="HTML",
+            reply_markup=get_recipe_list_keyboard(recipes, back_data="start"),
+        )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fav_add_"))
+async def favorite_add(callback: types.CallbackQuery, state: FSMContext):
+    recipe_id = int(callback.data.replace("fav_add_", ""))
+    recipe = await db.get_recipe_by_id(recipe_id)
+    if not recipe:
+        await callback.answer("Рецепт не найден", show_alert=True)
+        return
+
+    await db.add_favorite(callback.from_user.id, recipe_id)
+    related = await build_related_for_recipe(recipe)
+    markup = await _recipe_final_markup(callback.from_user.id, recipe_id, state, related=related)
+    await callback.message.edit_reply_markup(reply_markup=markup)
+    await callback.answer("⭐ Добавлено в избранное")
+
+@router.callback_query(F.data.startswith("fav_remove_"))
+async def favorite_remove(callback: types.CallbackQuery, state: FSMContext):
+    recipe_id = int(callback.data.replace("fav_remove_", ""))
+    recipe = await db.get_recipe_by_id(recipe_id)
+    if not recipe:
+        await callback.answer("Рецепт не найден", show_alert=True)
+        return
+
+    await db.remove_favorite(callback.from_user.id, recipe_id)
+    related = await build_related_for_recipe(recipe)
+    markup = await _recipe_final_markup(callback.from_user.id, recipe_id, state, related=related)
+    await callback.message.edit_reply_markup(reply_markup=markup)
+    await callback.answer("Убрано из избранного")
 
 # SEARCH
 @router.callback_query(F.data == "search")
